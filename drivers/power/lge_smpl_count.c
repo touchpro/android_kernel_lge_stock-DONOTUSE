@@ -32,7 +32,7 @@
 #define PWR_ON_EVENT_SMPL             0x02
 #define PWR_ON_EVENT_HARD_RESET       0x01
 
-/* extern uint16_t power_on_status_info_get(void); */
+extern uint16_t power_on_status_info_get(void);
 
 static int dummy_arg;
 
@@ -48,7 +48,7 @@ static int read_smpl_count(char *buffer, const struct kernel_param *kp)
 	uint16_t boot_cause = 0;
 	int warm_reset = 0;
 
-	/* boot_cause = power_on_status_info_get(); */
+	boot_cause = power_on_status_info_get();
 	warm_reset = qpnp_pon_is_warm_reset();
 	printk("[BOOT_CAUSE] %d, warm_reset = %d \n", boot_cause, warm_reset);
 

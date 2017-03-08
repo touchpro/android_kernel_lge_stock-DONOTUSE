@@ -156,6 +156,14 @@ struct kcal_platform_data {
 };
 #endif
 
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+int lge_get_lg4895_revision(void);
+#else
+int lge_get_db7400_cut(void);
+#endif
+#endif
+
 #if defined(CONFIG_PRE_SELF_DIAGNOSIS)
 struct pre_selfd_platform_data {
 	int (*set_values) (int r, int g, int b);
@@ -180,9 +188,10 @@ void get_dt_cn_prop_u32(const char *name, uint32_t *u32);
 enum lge_laf_mode_type {
 	LGE_LAF_MODE_NORMAL = 0,
 	LGE_LAF_MODE_LAF,
+	LGE_LAF_MODE_MID,
 };
 enum lge_laf_mode_type lge_get_laf_mode(void);
-
+enum lge_laf_mode_type lge_get_mid_mode(void);
 bool lge_get_mfts_mode(void);
 
 #if defined(CONFIG_LCD_KCAL)
@@ -255,8 +264,11 @@ enum lge_boot_mode_type {
 void __init lge_add_android_usb_devices(void);
 #endif
 
-#if defined(CONFIG_LGE_LCD_OFF_DIMMING) || defined(CONFIG_LGE_QSDL_SUPPORT)
+#if defined(CONFIG_LGE_QSDL_SUPPORT)
 int lge_get_bootreason(void);
+#endif
+#if defined(CONFIG_LGE_LCD_OFF_DIMMING)
+int lge_get_bootreasoncode(void);
 #endif
 enum lge_boot_mode_type lge_get_boot_mode(void);
 int lge_get_factory_boot(void);

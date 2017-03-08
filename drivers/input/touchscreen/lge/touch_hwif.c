@@ -1,28 +1,34 @@
-/* touch_hwif.c¬
+/* touch_hwif.c
  *
- * Copyright (C) 2015 LGE.¬
+ * Copyright (C) 2015 LGE.
  *
- * Author: hoyeon.jang@lge.com¬
+ * Author: hoyeon.jang@lge.com
  *
- * This software is licensed under the terms of the GNU General Public¬
- * License version 2, as published by the Free Software Foundation, and¬
- * may be copied, distributed, and modified under those terms.¬
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
  *
- * This program is distributed in the hope that it will be useful,¬
- * but WITHOUT ANY WARRANTY; without even the implied warranty of¬
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the¬
- * GNU General Public License for more details.¬
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
+
+#define TS_MODULE "[hwif]"
 
 #include <linux/gpio.h>
 /*#include <linux/regulator/machine.h>*/
 #include <linux/regulator/consumer.h>
-#include "touch_hwif.h"
-#include "touch_i2c.h"
-#include "touch_spi.h"
-#include "touch_core.h"
 #include <soc/qcom/lge/board_lge.h>
+
+/*
+ *  Include to touch core Header File
+ */
+#include <touch_core.h>
+#include <touch_i2c.h>
+#include <touch_spi.h>
+#include <touch_hwif.h>
 
 /* -- gpio -- */
 int touch_gpio_init(int pin, const char *name)
@@ -93,7 +99,7 @@ void touch_power_vdd(struct device *dev, int value)
 	}
 
 	if (ret)
-		TOUCH_E("ret = %d", ret);
+		TOUCH_E("ret = %d\n", ret);
 }
 
 void touch_power_vio(struct device *dev, int value)
@@ -111,7 +117,7 @@ void touch_power_vio(struct device *dev, int value)
 	}
 
 	if (ret)
-		TOUCH_E("ret = %d", ret);
+		TOUCH_E("ret = %d\n", ret);
 }
 
 
@@ -230,14 +236,22 @@ void touch_disable_irq_wake(unsigned int irq)
 	disable_irq_wake(irq);
 }
 
+#define istate core_internal_state__do_not_mess_with_it
 void touch_enable_irq(unsigned int irq)
 {
+	struct irq_desc *desc = irq_to_desc(irq);
+
+	if (desc) {
+		if (desc->istate & 0x00000200 /*IRQS_PENDING*/)
+			TOUCH_D(BASE_INFO, "Remove pending irq(%d)\n", irq);
+		desc->istate &= ~(0x00000200);
+	}
 	enable_irq(irq);
 }
 
 void touch_disable_irq(unsigned int irq)
 {
-	disable_irq(irq);
+	disable_irq_nosync(irq);
 }
 
 int touch_request_irq(unsigned int irq, irq_handler_t handler,
@@ -247,7 +261,6 @@ int touch_request_irq(unsigned int irq, irq_handler_t handler,
 	return request_threaded_irq(irq, handler, thread_fn, flags, name, dev);
 }
 
-#define istate core_internal_state__do_not_mess_with_it
 void touch_resend_irq(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
@@ -274,20 +287,40 @@ int touch_boot_mode(void)
 	return ret;
 }
 
-int touch_mfts_mode_check(struct device *dev)
+int touch_boot_mode_check(struct device *dev)
 {
 	struct touch_core_data *ts = to_touch_core(dev);
 	int ret = 0;
 
-	ret = atomic_read(&ts->state.mfts);
+	ret = lge_get_factory_boot();
+
+	if (ret != NORMAL_BOOT) {
+		switch (atomic_read(&ts->state.mfts)) {
+			case MFTS_NONE :
+				ret = MINIOS_AAT;
+				break;
+			case MFTS_FOLDER :
+				ret = MINIOS_MFTS_FOLDER;
+				break;
+			case MFTS_FLAT :
+				ret = MINIOS_MFTS_FLAT;
+				break;
+			case MFTS_CURVED :
+				ret = MINIOS_MFTS_CURVED;
+				break;
+			default :
+				ret = MINIOS_AAT;
+				break;
+		}
+	}
+	else
+		ret = NORMAL_BOOT;
 
 	return ret;
 }
 
 int touch_bus_device_init(struct touch_hwif *hwif, void *driver)
 {
-	TOUCH_TRACE();
-
 	if (hwif->bus_type == HWIF_I2C)
 		return touch_i2c_device_init(hwif, driver);
 	else if (hwif->bus_type == HWIF_SPI)

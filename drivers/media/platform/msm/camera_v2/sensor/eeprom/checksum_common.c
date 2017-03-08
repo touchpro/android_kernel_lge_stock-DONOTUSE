@@ -37,11 +37,11 @@ int32_t msm_eeprom_checksum_lgit(struct msm_eeprom_ctrl_t *e_ctrl) {
 
 	if(e_ctrl->cal_data.num_data < 0x770) {
 		pr_err("%s num_data = %d\n", __func__, e_ctrl->cal_data.num_data);
-		return rc;
+		//return rc;
+	}else{
+		eeprom_ver = e_ctrl->cal_data.mapdata[0x770];
+		pr_err("%s eeprom_ver = 0x%02X\n", __func__, eeprom_ver);
 	}
-
-	eeprom_ver = e_ctrl->cal_data.mapdata[0x770];
-	pr_err("%s eeprom_ver = 0x%02X\n", __func__, eeprom_ver);
 
 	switch(eeprom_ver) {
 		case 0x0d:
@@ -52,8 +52,13 @@ int32_t msm_eeprom_checksum_lgit(struct msm_eeprom_ctrl_t *e_ctrl) {
 				rc = msm_eeprom_checksum_lgit_v0d(e_ctrl);
 			}
 			break;
+        case 0xff:
 		default:
-			pr_info("eeprom ver = 0x%x\n", eeprom_ver);
+			if(!strncmp("at24c16d", e_ctrl->eboard_info->eeprom_name, 8)) {
+				rc = msm_eeprom_checksum_lgit_mn34153(e_ctrl);
+			} else if(!strncmp("hi553", e_ctrl->eboard_info->eeprom_name, 5)) {
+				rc = msm_eeprom_checksum_lgit_hi553(e_ctrl);
+			}
 			break;
 	}
 	return rc;
@@ -66,6 +71,11 @@ int32_t msm_eeprom_checksum_cowell(struct msm_eeprom_ctrl_t *e_ctrl)
 	//Cowell Module have not set EEPROM VERSION [0x770] yet (2015-06-11)
 	if(!strncmp("hi841", e_ctrl->eboard_info->eeprom_name, 5)) {
 		rc = msm_eeprom_checksum_cowell_hi841(e_ctrl);
+	}
+	else if(!strncmp("zc533", e_ctrl->eboard_info->eeprom_name, 5)) {
+		if (e_ctrl->cal_data.mapdata[0x700] == 0x10) {
+			rc = msm_eeprom_checksum_cowell_imx258(e_ctrl);
+		}
 	}
 	else {
 		pr_err("%s failed to identifying eeprom version\n", __func__);

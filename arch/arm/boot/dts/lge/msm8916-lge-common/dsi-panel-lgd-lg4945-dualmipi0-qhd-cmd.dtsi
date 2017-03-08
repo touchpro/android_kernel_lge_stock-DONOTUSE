@@ -188,31 +188,93 @@
 			/* Partial Mode On */
 			05 01 00 00 00 00 01 12
 		];
-		lge,mode-change-cmds-u2 = [ /* u3 ->u2 */
+		lge,mode-change-cmds-u3-to-u1 = [
+			/* Write Content Adaptive Brightness Control */
+			15 01 00 00 00 00 02 55 81
+			/* Memory Option Setting */
+			39 01 00 00 00 00 06 E7 00 00 00 00 00
+			/* Partial Area */
+			39 01 00 00 00 00 05 30 00 A0 0A 9F
+			/* Partial Mode On */
+			05 01 00 00 00 00 01 12
+		];
+		lge,mode-change-cmds-u1-to-u2 = [
 			/* Write Content Adaptive Brightness Control */
 			15 01 00 00 00 00 02 55 00
 			/* Tearing Effect Line Off */
 			05 01 00 00 00 00 01 34
+			/* Memory Option Setting */
+			39 01 00 00 00 00 06 E7 00 00 00 30 00
 			/* Page Address Set */
 			39 01 00 00 00 00 05 2B 00 00 00 9F
 			/* Partial Area */
 			39 01 00 00 00 00 05 30 00 00 00 9F
-			/* Partial Mode On */
-			05 01 00 00 00 00 01 12
+			/* Partial Mode On + 20ms Delay */
+			05 01 00 00 14 00 01 12
+			/* Memory Option Setting */
+			39 01 00 00 00 00 06 E7 00 00 00 00 00
 		];
-		lge,mode-change-cmds-u3 = [ /* u1->u3 and u2->u3 */
+		lge,mode-change-cmds-u3-to-u2 = [
+			/* Write Content Adaptive Brightness Control */
+			15 01 00 00 00 00 02 55 00
+			/* Tearing Effect Line Off */
+			05 01 00 00 00 00 01 34
+			/* Memory Option Setting */
+			39 01 00 00 00 00 06 E7 00 00 00 00 00
+			/* Page Address Set */
+			39 01 00 00 00 00 05 2B 00 00 00 9F
+			/* Partial Area */
+			39 01 00 00 00 00 05 30 00 00 00 9F
+			/* Partial Mode On + 20ms */
+			05 01 00 00 14 00 01 12
+		];
+		lge,mode-change-cmds-u1-to-u3 = [
+			/* Write Content Adaptive Brightness Control */
+			15 01 00 00 00 00 02 55 81
+			/* Memory Option Setting */
+			39 01 00 00 00 00 06 E7 00 00 00 00 00
+			/* Normmal DisplayMode On */
+			05 01 00 00 00 00 01 13
+		];
+		lge,mode-change-cmds-u2-to-u3 = [
 			/* Write Content Adaptive Brightness Control */
 			15 01 00 00 00 00 02 55 81
 			/* Page Address Set */
 			39 01 00 00 00 00 05 2B 00 00 0A 9F
-			/* Normmal DisplayMode On */
-			05 01 00 00 00 00 01 13
+			/* Normmal DisplayMode On + 33ms */
+			05 01 00 00 21 00 01 13
 		];
-		lge,mode-change-cmds-u3-ready = [ /* u2->u3 ready */
+		lge,mode-change-cmds-u3-ready = [
 			/*  Memory Enable*/
 			39 01 00 00 00 00 06 E7 00 00 00 30 00
 			/* Page Address Set */
 			39 01 00 00 00 00 05 2B 00 00 0A 9F
+		];
+		lge,mode-change-cmds-proximity-u2-to-u3 = [
+			/* Write Content Adaptive Brightness Control */
+			15 01 00 00 00 00 02 55 81
+			/* Switchable Power Domain Control */
+			39 01 00 00 00 00 03 C6 1B 55
+			/* Page Address Set */
+			39 01 00 00 00 00 05 2B 00 00 0A 9F
+			/* Normmal DisplayMode On + 33ms */
+			05 01 00 00 21 00 01 13
+		];
+		lge,mode-change-cmds-proximity-u3-to-u2 = [
+			/* Write Content Adaptive Brightness Control */
+			15 01 00 00 00 00 02 55 00
+			/* Tearing Effect Line Off */
+			05 01 00 00 00 00 01 34
+			/* Memory Option Setting */
+			39 01 00 00 00 00 06 E7 00 00 00 00 00
+			/* Switchable Power Domain Control */
+			39 01 00 00 00 00 03 C6 04 55
+			/* Page Address Set */
+			39 01 00 00 00 00 05 2B 00 00 00 9F
+			/* Partial Area */
+			39 01 00 00 00 00 05 30 00 00 00 9F
+			/* Partial Mode On + 20ms */
+			05 01 00 00 14 00 01 12
 		];
 		qcom,blmap-size = <256>;
 		qcom,blmap = <

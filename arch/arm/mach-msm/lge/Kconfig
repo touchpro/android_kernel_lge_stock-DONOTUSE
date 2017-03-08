@@ -468,6 +468,14 @@ config MACH_MSM8916_K5_GLOBAL_COM
         help
           Support for the Qualcomm MSM8916 K5 GLOBAL device.
 
+config MACH_MSM8916_K5_CMO_CN
+        bool "MSM8916 K5_CMO_CN"
+        depends on ARCH_MSM8916
+        select MACH_LGE
+        select LGE_ENABLE_THERMAL_CORE_CONTROL
+        help
+          Support for the Qualcomm MSM8916 K5 CN device.
+
 config MACH_MSM8916_K5_KR
         bool "MSM8916 K5_KR"
         depends on ARCH_MSM8916
@@ -475,6 +483,14 @@ config MACH_MSM8916_K5_KR
         select LGE_ENABLE_THERMAL_CORE_CONTROL
         help
           Support for the Qualcomm MSM8916 K5 KR device.
+
+config MACH_MSM8916_K5_JP
+        bool "MSM8916 K5_JP"
+        depends on ARCH_MSM8916
+        select MACH_LGE
+        select LGE_ENABLE_THERMAL_CORE_CONTROL
+        help
+          Support for the Qualcomm MSM8916 K5 JP device.
 
 config MACH_MSM8916_K5_LGU_KR
         bool "MSM8916 K5_LGU_KR"
@@ -499,6 +515,14 @@ config MACH_MSM8916_K5_KT_KR
         select LGE_ENABLE_THERMAL_CORE_CONTROL
         help
           Support for the Qualcomm MSM8916 K5 KT KR device.
+
+config MACH_MSM8916_K5_JCM_JP
+        bool "MSM8916 K5_JCM_JP"
+        depends on ARCH_MSM8916
+        select MACH_LGE
+        select LGE_ENABLE_THERMAL_CORE_CONTROL
+        help
+          Support for the Qualcomm MSM8916 K5 JCM JP device.
 
 config MACH_MSM8939_P1BC_SPR_US
         bool "MSM8939 P1BC_SPR_US"
@@ -624,7 +648,9 @@ config DTS_TARGET
 	default "msm8916-ph1_crk_us" if MACH_MSM8916_PH1_CRK_US
 	default "msm8916-ph1_global_com" if MACH_MSM8916_PH1_GLOBAL_COM
 	default "msm8916-k5_global_com" if MACH_MSM8916_K5_GLOBAL_COM
+    default "msm8916-k5_cmo_cn" if MACH_MSM8916_K5_CMO_CN
 	default "msm8916-k5_kr" if MACH_MSM8916_K5_KR
+	default "msm8916-k5_jp" if MACH_MSM8916_K5_JP
 	default "msm8939-p1bc_spr_us" if MACH_MSM8939_P1BC_SPR_US
 	default "msm8939-p1bssn_bell_ca" if MACH_MSM8939_P1BSSN_BELL_CA
 	default "msm8939-p1bssn_vtr_ca" if MACH_MSM8939_P1BSSN_VTR_CA
@@ -773,6 +799,13 @@ config LGE_PM_BATTERY_CAPACITY_4V4_2300mAh
 	bool "Support Battery Capacity : 2300mAh"
 	default n
 	depends on LGE_PM_BATTERY_PROFILE_DATA
+	help
+	  LGE battery capacity for 2300mAh
+
+config LGE_PM_BATTERY_CAPACITY_2300mAh
+	bool "Support Battery Capacity : 2300mAh"
+	default n
+	depends on LGE_PM_BATTERY_PROFILE_DATA_WO_BAT_ID
 	help
 	  LGE battery capacity for 2300mAh
 

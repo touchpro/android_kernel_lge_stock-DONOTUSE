@@ -28,6 +28,12 @@
 /****************************************************************************
 * Mainfest Constants / Defines
 ****************************************************************************/
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+#define CUT5 	5
+#define CUT6 	6
+#define CUT7 	7
+#endif
+
 #define LPWG_DEBUG_ENABLE		0
 #define DELAY_ENABLE			0
 #define KNOCKON_DELAY   			700
@@ -100,7 +106,7 @@
 #define MIP_R1_CTRL_CHARGER_MODE			0x19
 #define MIP_R1_CTRL_GLOVE_MODE			0x1A
 #define MIP_R1_CTRL_WINDOW_MODE			0x1B
-#define MIP_R1_CTRL_PALM_REJECTION			0x1C
+#define MIP_R1_CTRL_PALM_REJECTION			0x22
 #define MIP_R1_CTRL_EDGE_EXPAND			0x1D
 #define MIP_R1_CTRL_LPWG_DEBUG_ENABLE		0x1F
 
@@ -245,6 +251,7 @@ struct melfas_ts_data {
 	int quick_cover_status;
 	u8 lpwg_debug_enable;
 	u8 lpwg_fail_reason;
+	u8 display_id;
 	u8 product_code[16];
 	u8 ic_name[5];
 	u8 row_num;
@@ -252,6 +259,7 @@ struct melfas_ts_data {
 	u8 key_num;
 	u16 x_resolution;
 	u16 y_resolution;
+	u16 active_area_gap;
 
 	TouchState currState;
 	LpwgSetting lpwgSetting;
@@ -302,7 +310,7 @@ enum {
 /****************************************************************************
 * Exported Variables
 ****************************************************************************/
-
+extern int bootmode;
 extern int channelstatus_check;
 
 /****************************************************************************

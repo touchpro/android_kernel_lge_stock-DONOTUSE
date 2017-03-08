@@ -486,8 +486,8 @@ int compare_revision(const char *revision)
       defined (CONFIG_MACH_MSM8939_P1BSSN_BELL_CA) || defined(CONFIG_MACH_MSM8939_P1BSSN_VTR_CA) || \
 	  defined (CONFIG_MACH_MSM8916_PH1_VZW) || defined(CONFIG_MACH_MSM8939_PH2_GLOBAL_COM) || \
 	  defined (CONFIG_MACH_MSM8916_PH1_SPR_US) || defined (CONFIG_MACH_MSM8916_PH1_GLOBAL_COM) || \
-      defined (CONFIG_MACH_MSM8916_K5_GLOBAL_COM) || defined (CONFIG_MACH_MSM8916_PH1_KR) || \
-	  defined (CONFIG_MACH_MSM8916_PH1_CRK_US) || defined (CONFIG_MACH_MSM8916_K5)
+      defined (CONFIG_MACH_MSM8916_K5) || defined (CONFIG_MACH_MSM8916_PH1_KR) || \
+	  defined (CONFIG_MACH_MSM8916_PH1_CRK_US)
 		min_rev_no = HW_REV_A;
 #else
 		min_rev_no = HW_REV_EVB1;

@@ -17,6 +17,7 @@ source "drivers/input/touchscreen/synaptics_dsx/Kconfig"
 source "drivers/input/touchscreen/TD4191/Kconfig"
 source "drivers/input/touchscreen/MIT300/Kconfig"
 source "drivers/input/touchscreen/melfas_mip4/Kconfig"
+source "drivers/input/touchscreen/c100n_mit300/Kconfig"
 
 config TOUCHSCREEN_88PM860X
 	tristate "Marvell 88PM860x touchscreen"
@@ -1173,6 +1174,14 @@ config TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1
 	default n
 	help
          Say Y here if you have a Mefas MIT-300(PH1) I2C touchscreen
+         connected to your system.
+
+config TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1
+	bool "Synaptics TD4100 based on LGE Unified driver Ver4.0"
+	depends on I2C && TOUCHSCREEN_UNIFIED_DRIVER4
+	default n
+	help
+         Say Y here if you have a Synaptics TD4100(PH1) I2C touchscreen
          connected to your system.
 
 config MSM8916_C70

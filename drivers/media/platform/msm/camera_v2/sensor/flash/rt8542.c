@@ -224,7 +224,11 @@ static void rt8542_set_main_current_level(struct i2c_client *client, int level)
 	mutex_lock(&dev->bl_mutex);
 
 #ifdef CONFIG_LGE_PM_FACTORY_CABLE
-	if ( ( LGE_BOOT_MODE_QEM_910K == lge_get_boot_mode() || LGE_BOOT_MODE_PIF_910K == lge_get_boot_mode() ) && ( BATT_ID_UNKNOWN == read_lge_battery_id()) ){
+	if ( ( LGE_BOOT_MODE_QEM_910K == lge_get_boot_mode() || LGE_BOOT_MODE_PIF_910K == lge_get_boot_mode() )
+#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
+		&& ( BATT_ID_UNKNOWN == read_lge_battery_id() )
+#endif
+	){
 			pr_err("Set LCD brightness minimum, No Battery or No proper Battery with 910K Cable\n");
 			rt8542_write_reg(client, 0x05, 0x05);
 	} else{

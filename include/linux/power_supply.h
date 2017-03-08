@@ -184,8 +184,11 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_AICL,
 #endif
 #endif
-#ifdef CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ
+#ifdef CONFIG_LGE_PM_FLOATED_CHARGER
 	POWER_SUPPLY_PROP_VZW_CHG,
+#endif
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	POWER_SUPPLY_PROP_VZW_BATTERY_CYCLE,
 #endif
 #ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
 	POWER_SUPPLY_PROP_VALID_BATT,
@@ -381,7 +384,7 @@ struct power_supply_info {
 };
 
 #if defined(CONFIG_POWER_SUPPLY)
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 int power_supply_set_floated_charger(struct power_supply *psy, int is_float);
 int power_supply_set_chg_type_manual(struct power_supply *psy, int manual);
 #endif

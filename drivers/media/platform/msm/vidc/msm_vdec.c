@@ -21,6 +21,7 @@
 #define MSM_VDEC_DVC_NAME "msm_vdec_8974"
 #define MIN_NUM_OUTPUT_BUFFERS 4
 #define MIN_NUM_CAPTURE_BUFFERS 6
+#define MIN_NUM_THUMBNAIL_MODE_CAPTURE_BUFFERS 1
 #define MAX_NUM_OUTPUT_BUFFERS VB2_MAX_FRAME
 #define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8010
 #define MB_SIZE_IN_PIXEL (16 * 16)
@@ -48,27 +49,6 @@ static const char *const mpeg_video_output_order[] = {
 	"Display Order",
 	"Decode Order",
 	NULL
-};
-static const char *const mpeg_video_vidc_extradata[] = {
-	"Extradata none",
-	"Extradata MB Quantization",
-	"Extradata Interlace Video",
-	"Extradata VC1 Framedisp",
-	"Extradata VC1 Seqdisp",
-	"Extradata timestamp",
-	"Extradata S3D Frame Packing",
-	"Extradata Frame Rate",
-	"Extradata Panscan Window",
-	"Extradata Recovery point SEI",
-	"Extradata Closed Caption UD",
-	"Extradata AFD UD",
-	"Extradata Multislice info",
-	"Extradata number of concealed MB",
-	"Extradata metadata filler",
-	"Extradata input crop",
-	"Extradata digital zoom",
-	"Extradata aspect ratio",
-	"Extradata mpeg2 seqdisp",
 };
 static const char *const mpeg_vidc_video_alloc_mode_type[] = {
 	"Buffer Allocation Static",
@@ -245,7 +225,7 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.name = "Extradata Type",
 		.type = V4L2_CTRL_TYPE_MENU,
 		.minimum = V4L2_MPEG_VIDC_EXTRADATA_NONE,
-		.maximum = V4L2_MPEG_VIDC_EXTRADATA_FRAME_BITS_INFO,
+		.maximum = V4L2_MPEG_VIDC_EXTRADATA_VPX_COLORSPACE,
 		.default_value = V4L2_MPEG_VIDC_EXTRADATA_NONE,
 		.menu_skip_mask = ~(
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_NONE) |
@@ -267,7 +247,12 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_MPEG2_SEQDISP) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_STREAM_USERDATA) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_FRAME_QP) |
-			(1 << V4L2_MPEG_VIDC_EXTRADATA_FRAME_BITS_INFO)
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_FRAME_BITS_INFO) |
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_DISPLAY_COLOUR_SEI) |
+			(1 <<
+			V4L2_MPEG_VIDC_EXTRADATA_CONTENT_LIGHT_LEVEL_SEI) |
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_VUI_DISPLAY) |
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_VPX_COLORSPACE)
 			),
 		.qmenu = mpeg_video_vidc_extradata,
 		.step = 0,
@@ -1152,7 +1137,7 @@ int msm_vdec_s_parm(struct msm_vidc_inst *inst, struct v4l2_streamparm *a)
 
 	if ((fps % 15 == 14) || (fps % 24 == 23))
 		fps = fps + 1;
-	else if ((fps % 24 == 1) || (fps % 15 == 1))
+	else if ((fps > 1) && ((fps % 24 == 1) || (fps % 15 == 1)))
 		fps = fps - 1;
 
 	if (inst->prop.fps != fps) {
@@ -1559,6 +1544,7 @@ static int msm_vdec_queue_setup(struct vb2_queue *q,
 	struct hal_buffer_count_actual new_buf_count;
 	enum hal_property property_id;
 	u32 hold_count = 0;
+	int min_buff_count = 0;
 
 	if (!q || !num_buffers || !num_planes
 		|| !sizes || !q->drv_priv) {
@@ -1624,18 +1610,12 @@ static int msm_vdec_queue_setup(struct vb2_queue *q,
 
 		*num_buffers = max(*num_buffers, bufreq->buffer_count_min);
 
-		if ((*num_buffers < MIN_NUM_CAPTURE_BUFFERS ||
-			*num_buffers > VB2_MAX_FRAME) &&
-			(inst->fmts[OUTPUT_PORT]->fourcc ==
-				V4L2_PIX_FMT_H264)) {
-			int temp = *num_buffers;
-			*num_buffers = clamp_val(*num_buffers,
-					MIN_NUM_CAPTURE_BUFFERS,
-					VB2_MAX_FRAME);
-			dprintk(VIDC_INFO,
-				"Updating CAPTURE_MPLANE buffer count from %d -> %d\n",
-				temp, *num_buffers);
-		}
+		min_buff_count = (!!(inst->flags & VIDC_THUMBNAIL)) ?
+			MIN_NUM_THUMBNAIL_MODE_CAPTURE_BUFFERS :
+			MIN_NUM_CAPTURE_BUFFERS;
+
+		*num_buffers = clamp_val(*num_buffers,
+			min_buff_count, VB2_MAX_FRAME);
 
 		if (*num_buffers != bufreq->buffer_count_actual) {
 			property_id = HAL_PARAM_BUFFER_COUNT_ACTUAL;

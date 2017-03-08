@@ -27,8 +27,11 @@
 #define TOUCH_MODEL_M2
 #endif
 
-#if defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1)
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1) || defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
 #define TOUCH_MODEL_PH1
+/* Select W/A option to recovery Touch IC from a serious abnormal case (Default : Disable)*/
+#define TOUCH_USE_RECOVERY
+//#define TOUCH_LPWG_JITTER_AVG
 #endif
 
 /****************************************************************************
@@ -144,6 +147,11 @@
 
 /* Touch Device */
 #define TOUCH_DEVICE_MIT300
+
+/* SECURITY MODE */
+#if defined(CONFIG_MACH_MSM8916_PH1_SPR_US) || defined(CONFIG_MACH_MSM8916_PH1_CRK_US)
+#define ENABLE_SECURITY_MODE
+#endif
 
 #elif defined(TOUCH_MODEL_Y90)
 

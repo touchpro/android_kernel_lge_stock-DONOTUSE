@@ -1453,6 +1453,7 @@ struct hdd_context_s
     struct hdd_ll_stats_context ll_stats_context;
 #endif /* End of WLAN_FEATURE_LINK_LAYER_STATS */
     v_BOOL_t isSetBandByNL;
+    v_U8_t con_scan_abort_cnt;
 };
 
 
@@ -1721,5 +1722,5 @@ static inline void hdd_init_ll_stat_ctx(void)
     return;
 }
 #endif /* WLAN_FEATURE_LINK_LAYER_STATS */
-
+void hdd_wlan_clear_wiphy_channels(struct wiphy *wiphy);
 #endif    // end #if !defined( WLAN_HDD_MAIN_H )

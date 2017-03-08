@@ -33,6 +33,7 @@ struct msm_otp_fn_t {
 	int32_t (*otp_read) (struct msm_otp_ctrl_t *,
 							struct msm_otp_memory_block_t *);
 	int32_t (*otp_checksum) (struct msm_otp_ctrl_t *);
+	int32_t (*otp_write) (struct msm_otp_ctrl_t *); /*LGE_CHANGE_S, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
 };
 
 struct msm_otp_ctrl_t {

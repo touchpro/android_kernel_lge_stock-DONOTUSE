@@ -31,3 +31,7 @@ endif
 ifeq ($(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1), y)
 obj-y   += MIT300_PH1/
 endif
+
+ifeq ($(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1), y)
+obj-y   += td4100_PH1/
+endif

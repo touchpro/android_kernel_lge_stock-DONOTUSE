@@ -32,17 +32,12 @@
 #define MAX_FINGER		10
 #define MAX_BUTTON		4
 
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-#define MIT_SD_CM_JITTER_REPEAT		5
-#define AVERAGE_JITTER_LIMIT		19
-#define ROW_DIFF_MARGINE		5
-#define JITTER_JUDGE_COUNT		6
-#endif
-
 #define BATT_THERMAL		"/sys/class/hwmon/hwmon0/device/batt_therm"
 #define BATT_PRESENT		"/sys/class/power_supply/battery/present"
 
 #define RETRY_CNT		2
+
+#define TOUCH_GPIO_RESET      (12+902)
 
 struct touch_device_caps {
 	u8	button_support;
@@ -164,11 +159,7 @@ struct touch_platform_data {
 	char p5_fw_product[16];
 	char p5_fw_image[NAME_BUFFER_SIZE];
 	char	panel_spec[NAME_BUFFER_SIZE];
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	bool	selfdiagnostic_state[4+MIT_SD_CM_JITTER_REPEAT];
-#else
 	bool	selfdiagnostic_state[4];
-#endif
 	struct touch_power_info		pwr[TOUCH_PWR_NUM];
 	struct touch_device_caps	*caps;
 	struct touch_operation_role	*role;

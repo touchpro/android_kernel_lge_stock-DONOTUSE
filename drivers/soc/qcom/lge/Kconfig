@@ -106,6 +106,20 @@ config LGE_SENSOR_UNIFIED_NODE
     help
       Support LGE SENSOR Unified sysfs node
 
+config LGE_USE_DEFAULT_HARD_RESET
+    bool "On reboot, apply hard reset unless memory contents must be maintained"
+    default n
+    help
+      Nobody can guarantee stablity upon continuous warm resets.
+
+config LGE_DEFAULT_DISABLE_DLOAD_MODE
+    bool "set default value of download_mode to 0"
+    default n
+    help
+      If some crash occurs on boot-up,
+      device enters into ramdump mode even though user build.
+      (because default value of download_mode is 1)
+
 endmenu
 
 menu "LGE QFPROM Values"

@@ -19,6 +19,7 @@
 #include <linux/of.h>
 #include <linux/iommu.h>
 #include <linux/qcom_iommu.h>
+#include <linux/pm_qos.h>
 #include <linux/regulator/consumer.h>
 #include <linux/iopoll.h>
 #include <linux/coresight-stm.h>
@@ -1600,6 +1601,10 @@ static inline int venus_hfi_power_off(struct venus_hfi_device *device)
 	}
 
 	dprintk(VIDC_DBG, "Entering power collapse\n");
+
+        if (device->res->pm_qos_latency_us &&
+                pm_qos_request_active(&device->qos))
+		pm_qos_remove_request(&device->qos);
 	rc = venus_hfi_tzbsp_set_video_state(TZBSP_VIDEO_STATE_SUSPEND);
 	if (rc) {
 		dprintk(VIDC_WARN, "Failed to suspend video core %d\n", rc);
@@ -1737,8 +1742,30 @@ static inline int venus_hfi_power_on(struct venus_hfi_device *device)
 
 	device->power_enabled = true;
 
+	if(device->res->pm_qos_latency_us) {
+#ifdef CONFIG_SMP
+                device->qos.type = PM_QOS_REQ_AFFINE_IRQ;
+                device->qos.irq = device->hal_data->irq;
+#endif
+		pm_qos_add_request(&device->qos, PM_QOS_CPU_DMA_LATENCY,
+					device->res->pm_qos_latency_us);
+	}
+
+	/*
+	 * write_lock is already acquired at this point, so to avoid
+	 * recursive lock in cmdq_write function, call nolock version
+	 * of alloc_ocmem
+	 */
+	WARN_ON(!mutex_is_locked(&device->write_lock));
+	rc = __alloc_set_ocmem(device, false);
+	if (rc) {
+		dprintk(VIDC_ERR, "Failed to allocate OCMEM");
+		goto err_alloc_ocmem;
+	}
+
 	dprintk(VIDC_WARN, "Venus resumed from power collapse\n");
 	return rc;
+err_alloc_ocmem:
 err_reset_core:
 	venus_hfi_tzbsp_set_video_state(TZBSP_VIDEO_STATE_SUSPEND);
 err_set_video_state:
@@ -2401,6 +2428,15 @@ static int venus_hfi_core_init(void *device)
 	if (rc || venus_hfi_iface_cmdq_write(dev, &version_pkt))
 		dprintk(VIDC_WARN, "Failed to send image version pkt to f/w\n");
 
+	if (dev->res->pm_qos_latency_us) {
+#ifdef CONFIG_SMP
+		dev->qos.type = PM_QOS_REQ_AFFINE_IRQ;
+		dev->qos.irq = dev->hal_data->irq;
+#endif
+		pm_qos_add_request(&dev->qos, PM_QOS_CPU_DMA_LATENCY,
+				dev->res->pm_qos_latency_us);
+	}
+
 	return rc;
 err_core_init:
 	venus_hfi_set_state(dev, VENUS_STATE_DEINIT);
@@ -2437,6 +2473,12 @@ static int venus_hfi_core_release(void *device)
 			disable_irq_nosync(dev->hal_data->irq);
 		dev->intr_status = 0;
 	}
+
+
+	if (dev->res->pm_qos_latency_us &&
+                pm_qos_request_active(&dev->qos))
+		pm_qos_remove_request(&dev->qos);
+
 	venus_hfi_set_state(dev, VENUS_STATE_DEINIT);
 
 	dprintk(VIDC_INFO, "HAL exited\n");

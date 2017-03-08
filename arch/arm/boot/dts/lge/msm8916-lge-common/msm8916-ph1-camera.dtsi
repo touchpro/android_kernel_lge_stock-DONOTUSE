@@ -27,6 +27,7 @@
 		lm3632,default_brightness = <0x9F>;
 		lm3632,max_brightness = <0xFF>;
 		lm3632,enable_pwm = <0>;
+		lm3632,bl_ramp_time = <0x8>; // 50msec
 		lm3632,blmap_size = <256>;
 		lm3632,blmap = <
 			/*   0 */    2   2   2   2   2   2   2   2   2   2

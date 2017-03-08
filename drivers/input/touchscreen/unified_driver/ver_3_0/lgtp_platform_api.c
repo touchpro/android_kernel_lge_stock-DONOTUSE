@@ -91,6 +91,12 @@ static void TouchMaskIrq(void)
 	#if defined(TOUCH_PLATFORM_QCT)
 	struct irq_desc *desc = irq_to_desc(nIrq_num);
 
+	if (desc == NULL)
+	{
+		TOUCH_ERR("fail to allocate desc\n");
+		return;
+	}
+
 	if (desc->irq_data.chip->irq_mask)
 		desc->irq_data.chip->irq_mask(&desc->irq_data);
 	#endif
@@ -100,6 +106,12 @@ static void TouchUnMaskIrq(void)
 {
 	#if defined(TOUCH_PLATFORM_QCT)
 	struct irq_desc *desc = irq_to_desc(nIrq_num);
+
+	if (desc == NULL)
+	{
+		TOUCH_ERR("fail to allocate desc\n");
+		return;
+	}
 
 	if (desc->irq_data.chip->irq_unmask)
 		desc->irq_data.chip->irq_unmask(&desc->irq_data);

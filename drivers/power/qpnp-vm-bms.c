@@ -39,7 +39,7 @@
 #include <linux/qpnp-revid.h>
 #include <uapi/linux/vm_bms.h>
 
-#ifdef CONFIG_LGE_PM_BATTERY_PROFILE_DATA
+#if defined(CONFIG_LGE_PM_BATTERY_PROFILE_DATA) || defined(CONFIG_LGE_PM_BATTERY_PROFILE_DATA_WO_BAT_ID)
 #ifdef CONFIG_64BIT
 #include <soc/qcom/lge/board_lge.h>
 #else
@@ -305,6 +305,11 @@ static struct qpnp_bms_chip *the_chip;
 
 #if defined(CONFIG_LGE_PM_FACTORY_TESTMODE) && defined(CONFIG_QPNP_LINEAR_CHARGER)
 extern bool	start_chg_factory_testmode;
+#endif
+
+#ifdef CONFIG_LGE_PM_VM_BMS_EARLY_FIFO_UPDATE
+static bool first_fifo_irq;
+static bool fast_fifo_set;
 #endif
 
 /*
@@ -1584,6 +1589,10 @@ static void check_eoc_condition(struct qpnp_bms_chip *chip)
 					&& chip->reported_soc == 100) {
 				pr_debug("reported_soc=100, last_soc=%d, do not send DISCHARING status\n",
 						chip->last_soc);
+#ifdef CONFIG_LGE_PM
+			} else if( chip->rescaled_soc == 100 ) {
+                               pr_info("rescaled_soc=100, do not send DISCHARING status\n");
+#endif
 			} else {
 				ret.intval = POWER_SUPPLY_STATUS_DISCHARGING;
 				chip->batt_psy->set_property(chip->batt_psy,
@@ -1645,11 +1654,23 @@ static int rescale_vm_bms_soc(struct qpnp_bms_chip *chip)
 		pr_info("first check soc : recalculate_soc=%d\n", recalculate_soc);
 	}
 	else{
+#ifdef CONFIG_LGE_PM_VM_BMS_SLOW_INCREASE
+		if ( !charging && (recalculate_soc > chip->rescaled_soc)) {
+			pr_info("ignore the rasied SOC %d in dischg\n",recalculate_soc);
+		} else {
+			if(buf_soc_index >= SOC_MAX_COUNT)
+				buf_soc_index = 0;
+
+			buf_soc[buf_soc_index] = recalculate_soc;
+			buf_soc_index++;
+		}
+#else
 		if(buf_soc_index >= SOC_MAX_COUNT)
 			buf_soc_index = 0;
 
 		buf_soc[buf_soc_index] = recalculate_soc;
 		buf_soc_index++;
+#endif
 	}
 
 	for(index_soc = 0; index_soc < SOC_MAX_COUNT; index_soc++) {
@@ -2037,7 +2058,35 @@ static void low_soc_check(struct qpnp_bms_chip *chip)
 
 	mutex_lock(&chip->state_change_mutex);
 
+#ifdef CONFIG_LGE_PM_VM_BMS_EARLY_FIFO_UPDATE
+	if (!first_fifo_irq) {	/* no fifo irq until now*/
+		if(!fast_fifo_set) {
+			rc = get_fifo_length(chip, S2_STATE,
+							&chip->s2_fifo_length);
+			if (rc) {
+				pr_err("Unable to get_fifo_length rc=%d", rc);
+				goto low_soc_exit;
+			}
+			if (chip->calculated_soc <= chip->dt.cfg_low_soc_calc_threshold) {
+				rc = set_fifo_length(chip,S2_STATE,
+					chip->dt.cfg_low_soc_fifo_length);
+				pr_err("soc=%d (boot-up) setting fifo_length to %d\n",
+					chip->calculated_soc,chip->dt.cfg_low_soc_fifo_length);
+			} else {
+				rc = set_fifo_length(chip, S2_STATE,4);
+				pr_err("soc=%d (boot-up) setting fifo_length to 4\n",
+					chip->calculated_soc);
+			}
+			if (rc) {
+				pr_err("Unable to set_fifo_length rc=%d", rc);
+				goto low_soc_exit;
+			}
+			fast_fifo_set = true;
+		}
+	} else if (chip->calculated_soc <= chip->dt.cfg_low_soc_calc_threshold) {
+#else
 	if (chip->calculated_soc <= chip->dt.cfg_low_soc_calc_threshold) {
+#endif
 		if (!chip->low_soc_fifo_set) {
 			pr_debug("soc=%d (low-soc) setting fifo_length to %d\n",
 						chip->calculated_soc,
@@ -2855,6 +2904,21 @@ static irqreturn_t bms_fifo_update_done_irq_handler(int irq, void *_chip)
 	/* hold a wake lock until the read thread is scheduled */
 	if (chip->bms_dev_open)
 		pm_stay_awake(chip->dev);
+#ifdef CONFIG_LGE_PM_VM_BMS_EARLY_FIFO_UPDATE
+	if (fast_fifo_set) {
+		pr_err("soc=%d (boot-done) setting back fifo_length to %d\n",
+					chip->calculated_soc,
+					chip->s2_fifo_length);
+		rc = set_fifo_length(chip, S2_STATE,
+						chip->s2_fifo_length);
+		if (rc) {
+			pr_err("Unable to set_fifo_length rc=%d", rc);
+			goto fail_fifo;
+		}
+		first_fifo_irq = true;
+		fast_fifo_set = false;
+	}
+#endif
 fail_fifo:
 	mutex_unlock(&chip->bms_data_mutex);
 	return IRQ_HANDLED;
@@ -3437,7 +3501,7 @@ static int bms_find_irqs(struct qpnp_bms_chip *chip,
 	return 0;
 }
 
-
+#ifndef CONFIG_LGE_PM_BATTERY_PROFILE_DATA_WO_BAT_ID
 static int64_t read_battery_id(struct qpnp_bms_chip *chip)
 {
 #ifdef CONFIG_LGE_PM_BATTERY_PROFILE_DATA
@@ -3456,6 +3520,7 @@ static int64_t read_battery_id(struct qpnp_bms_chip *chip)
 	return result.physical;
 #endif
 }
+#endif
 
 static int show_bms_config(struct seq_file *m, void *data)
 {
@@ -3627,7 +3692,7 @@ static const struct file_operations bms_data_debugfs_ops = {
 
 static int set_battery_data(struct qpnp_bms_chip *chip)
 {
-	int64_t battery_id;
+	int64_t battery_id = 0;
 	int rc = 0;
 	struct bms_battery_data *batt_data;
 	struct device_node *node;
@@ -3787,6 +3852,16 @@ static int set_battery_data(struct qpnp_bms_chip *chip)
 			break;
 #endif
 	}
+
+	node = of_find_node_by_name(chip->spmi->dev.of_node,
+					battery_profile);
+#elif defined(CONFIG_LGE_PM_BATTERY_PROFILE_DATA_WO_BAT_ID)
+	char *battery_profile;
+
+#ifdef CONFIG_LGE_PM_BATTERY_CAPACITY_2300mAh
+	battery_profile = "qcom,lgc-battery-data";
+	pr_err("[BATTERY PROFILE] Using battery profile - LGChem_2300mAh\n");
+#endif
 
 	node = of_find_node_by_name(chip->spmi->dev.of_node,
 					battery_profile);

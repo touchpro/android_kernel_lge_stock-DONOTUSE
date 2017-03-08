@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,6 +23,11 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #define MAX_QVALUE  4096
 static struct v4l2_file_operations msm_actuator_v4l2_subdev_fops;
+
+#define PARK_LENS_LONG_STEP 7
+#define PARK_LENS_MID_STEP 5
+#define PARK_LENS_SMALL_STEP 3
+
 static int32_t msm_actuator_power_up(struct msm_actuator_ctrl_t *a_ctrl);
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl);
 
@@ -213,6 +218,10 @@ static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 
 		if (rc < 0)
 			break;
+		}
+		if (0 != settings[i].delay) {
+			msleep(settings[i].delay);
+			pr_err("[WAIT][%d] msleep(%d)\n", i, settings[i].delay);
 		}
 	}
 
@@ -437,7 +446,7 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 		(!a_ctrl->func_tbl->actuator_parse_i2c_params)) {
 		pr_err("%s:%d Failed to park lens.\n",
 			__func__, __LINE__);
-		return 0;
+		return -EFAULT;
 	}
 
 	if (a_ctrl->park_lens.max_step > a_ctrl->max_code_size)
@@ -447,6 +456,30 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 	while (next_lens_pos) {
 		next_lens_pos = (next_lens_pos > a_ctrl->park_lens.max_step) ?
 			(next_lens_pos - a_ctrl->park_lens.max_step) : 0;
+#if 0
+		/* conditions which help to reduce park lens time */
+		if (next_lens_pos > (a_ctrl->park_lens.max_step *
+			PARK_LENS_LONG_STEP)) {
+			next_lens_pos = next_lens_pos -
+				(a_ctrl->park_lens.max_step *
+				PARK_LENS_LONG_STEP);
+		} else if (next_lens_pos > (a_ctrl->park_lens.max_step *
+			PARK_LENS_MID_STEP)) {
+			next_lens_pos = next_lens_pos -
+				(a_ctrl->park_lens.max_step *
+				PARK_LENS_MID_STEP);
+		} else if (next_lens_pos > (a_ctrl->park_lens.max_step *
+			PARK_LENS_SMALL_STEP)) {
+			next_lens_pos = next_lens_pos -
+				(a_ctrl->park_lens.max_step *
+				PARK_LENS_SMALL_STEP);
+		} else {
+			next_lens_pos = (next_lens_pos >
+				a_ctrl->park_lens.max_step) ?
+				(next_lens_pos - a_ctrl->park_lens.
+				max_step) : 0;
+		}
+#endif
 		a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
 			next_lens_pos, a_ctrl->park_lens.hw_params,
 			a_ctrl->park_lens.damping_delay);
@@ -547,14 +580,23 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	uint16_t data_size = set_info->actuator_params.data_size;
 	CDBG("Enter\n");
 
+	/* validate the actuator state */
+        #if 0
+	if (a_ctrl->actuator_state != ACTUATOR_POWER_UP) {
+		pr_err("%s:%d invalid actuator_state %d\n"
+			, __func__, __LINE__, a_ctrl->actuator_state);
+		return -EINVAL;
+	}
+        #endif
 	for (; data_size > 0; data_size--)
 		max_code_size *= 2;
 
 	a_ctrl->max_code_size = max_code_size;
+	/* free the step_position_table to allocate a new one */
 	if ((a_ctrl->actuator_state == ACTUATOR_POWER_UP) &&
 		(a_ctrl->step_position_table != NULL)) {
 		kfree(a_ctrl->step_position_table);
-	}
+        }
 	a_ctrl->step_position_table = NULL;
 
 	if (set_info->af_tuning_params.total_steps
@@ -583,13 +625,24 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		step_boundary =
 			a_ctrl->region_params[region_index].
 			step_bound[MOVE_NEAR];
+#if 0
+		if (step_boundary >
+			set_info->af_tuning_params.total_steps) {
+			pr_err("invalid step_boundary = %d, max_val = %d",
+				step_boundary,
+				set_info->af_tuning_params.total_steps);
+			kfree(a_ctrl->step_position_table);
+			a_ctrl->step_position_table = NULL;
+			return -EINVAL;
+		}
+#endif
 		for (; step_index <= step_boundary; step_index++) {
-			if ( qvalue > 1 && qvalue <= MAX_QVALUE)
+			if (qvalue > 1 && qvalue <= MAX_QVALUE)
 				cur_code = step_index * code_per_step / qvalue;
 			else
 				cur_code = step_index * code_per_step;
 			cur_code += set_info->af_tuning_params.initial_code;
-			if (cur_code < max_code_size){
+			if (cur_code < max_code_size) {
 				a_ctrl->step_position_table[step_index] =
 					cur_code;
 			} else {
@@ -1146,7 +1199,8 @@ static int msm_actuator_close(struct v4l2_subdev *sd,
 	int rc = 0;
 	struct msm_actuator_ctrl_t *a_ctrl =  v4l2_get_subdevdata(sd);
 	CDBG("Enter\n");
-	if (!a_ctrl) {
+	if (!a_ctrl || !a_ctrl->i2c_client.i2c_func_tbl) {
+		/* check to make sure that init happens before release */
 		pr_err("failed\n");
 		return -EINVAL;
 	}
@@ -1276,8 +1330,12 @@ static long msm_actuator_subdev_ioctl(struct v4l2_subdev *sd,
 	case MSM_SD_NOTIFY_FREEZE:
 		return 0;
 	case MSM_SD_SHUTDOWN:
-		msm_actuator_close(sd, NULL);
-		return 0;
+		if (!a_ctrl->i2c_client.i2c_func_tbl) {
+			pr_err("a_ctrl->i2c_client.i2c_func_tbl NULL\n");
+			return -EINVAL;
+		} else {
+			return msm_actuator_close(sd, NULL);
+		}
 	default:
 		return -ENOIOCTLCMD;
 	}

@@ -3977,7 +3977,6 @@ void* wlan_hdd_change_country_code_callback(void *pAdapter)
     return NULL;
 }
 
-
 static int __iw_set_nick(struct net_device *dev,
                        struct iw_request_info *info,
                        union iwreq_data *wrqu, char *extra)

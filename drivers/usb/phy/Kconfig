@@ -304,20 +304,12 @@ config USB_ULPI_VIEWPORT
 	  Provides read/write operations to the ULPI phy register set for
 	  controllers with a viewport register (e.g. Chipidea/ARC controllers).
 
-config LGE_STANDARD_USB_A_ALTEV2
+config LGE_USB_TYPE_A
         bool "Standard USB A for ALTEV2"
         help
           Say Y to enable standard USB A port in ALTEV2 VZW
 
         default n
-
-config LGE_STANDARD_USB_A_ALTEV2_NOTIFY
-	bool "from display, notify backlight state to USB"
-	depends on LGE_STANDARD_USB_A_ALTEV2
-	help
-	  Say Y to enable this.
-
-	default n
 
 config LGE_USB_G_DISABLE_USBID_PULL_UP
 	bool "disable usb id pullup"

@@ -42,9 +42,19 @@
 #define I2C_BL_NAME                              "lm3632_bl"
 #endif
 
+#if defined (CONFIG_MACH_MSM8916_K5)
+#define LM3632_BRT_LSB_MASK		(BIT(0) | BIT(1) | BIT(2))
+#define LM3632_BRT_MSB_SHIFT		3
+#define MAX_BRIGHTNESS_LM3632                    0x7FF
+#define MIN_BRIGHTNESS_LM3632                    0x05
+#define DEFAULT_BRIGHTNESS                       0x5F5
+#define PROXY_FAR 1
+#define PROXY_NEAR 0
+#else
 #define MAX_BRIGHTNESS_LM3632                    0xFF
 #define MIN_BRIGHTNESS_LM3632                    0x05
 #define DEFAULT_BRIGHTNESS                       0x1F
+#endif
 #define POWER_OFF		0x00
 #define BOTH_ON			0xFF
 #define BL_ON			0xF0
@@ -52,6 +62,10 @@
 
 /* LGE_CHANGE  - To turn backlight on by setting default brightness while kernel booting */
 #define BOOT_BRIGHTNESS 1
+
+#if defined(CONFIG_TOVIS_PH1SYNAP_INCELL_VIDEO_HD_PANEL)
+extern int get_display_id(void);
+#endif
 
 #if defined(LM3632_FLED_EN)
 static struct msm_camera_i2c_client lm3632_flash_i2c_client = {
@@ -89,6 +103,7 @@ static int saved_main_lcd_level = DEFAULT_BRIGHTNESS;
 static int backlight_status = POWER_OFF;
 static int lm3632_pwm_enable;
 static struct lm3632_device *main_lm3632_dev;
+extern int mfts_lpwg;
 
 #if defined (CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL)
 int lm3632_dsv_ctrl(int dsv_en)
@@ -147,7 +162,7 @@ void lm3632_dsv_fd_ctrl(int dsv_fd)
 	/* set fd to float */
 	lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x01);
 }
-#elif defined (CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
+#elif defined (CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 static int lm3632_read_reg(struct i2c_client *client, u8 reg, u8 *buf);
 void lm3632_set_knock_on_mode(void)
 {
@@ -156,7 +171,7 @@ void lm3632_set_knock_on_mode(void)
 		return;
 	}
 
-#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
+#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 	lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x00);//Standby mode
 	lm3632_write_reg(main_lm3632_dev->client, 0x0D, 0x10);//Boost
 	lm3632_write_reg(main_lm3632_dev->client, 0x0E, 0x14);//VSP 5.0V
@@ -177,7 +192,7 @@ void lm3632_unset_knock_on_mode(void)
 		return;
 	}
 
-#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
+#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 	lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x00);//Standby mode
 	lm3632_write_reg(main_lm3632_dev->client, 0x0D, 0x1E);//Boost 6V
 	lm3632_write_reg(main_lm3632_dev->client, 0x0F, 0x1E);//VSP 5.5V
@@ -291,9 +306,25 @@ void lm3632_dsv_output_ctrl(int enable)
 	}
 
 	if (enable == 1) {
+#if defined(CONFIG_TOVIS_PH1SYNAP_INCELL_VIDEO_HD_PANEL)
+		if(get_display_id()) { // TD4100
+			lm3632_write_reg(main_lm3632_dev->client, 0x0E, 0x1E); // Set VPOS +5.5V
+			lm3632_write_reg(main_lm3632_dev->client, 0x0F, 0x1E); // Set VNEG -5.5V
+
+			lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x04); // VPOS_EN
+			mdelay(10);
+			lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x06); // VPOS_EN + VNEG_EN
+			mdelay(10);
+		} else { // DB7400
+			lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x04);
+			mdelay(2);
+			lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x06);
+		}
+#else
 		lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x04);
 		mdelay(2);
 		lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x06);
+#endif
 	}
 	else {
 #if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
@@ -301,6 +332,54 @@ void lm3632_dsv_output_ctrl(int enable)
 #else
 		lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x00);
 #endif
+	}
+}
+#elif IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+extern int proxy_sensor_status;
+static int lm3632_read_reg(struct i2c_client *client, u8 reg, u8 *buf);
+void lm3632_dsv_fd_ctrl(int enable)
+{
+	pr_info("%s: DSV FD Toggle to %d\n", __func__, enable);
+
+	if (main_lm3632_dev == NULL) {
+		pr_err("%s : lm3632_dev is null ", __func__);
+		return;
+	}
+
+	if (enable) {
+		if(lge_get_mfts_mode()){
+			if(!mfts_lpwg){
+				pr_info("%s: mfts_lpwg is not set, dsv will be turned on\n", __func__);
+				gpio_set_value((main_lm3632_dev->bl_gpio), 1);
+				mdelay(1);
+				lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x00); // Standby
+				lm3632_write_reg(main_lm3632_dev->client, 0x0D, 0x24); // LCM_VBST 6.3V; MAX(|VSP|, |VSN|)+300mV
+				lm3632_write_reg(main_lm3632_dev->client, 0x0E, 0x28); // VSP 6.0V
+				lm3632_write_reg(main_lm3632_dev->client, 0x0F, 0x28); // VSN -6.0V
+				lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x04); // i2c control VPOS
+				mdelay(2);
+				lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x06); // i2c control VPOS+VNEG
+			}
+		} else {
+			if ( lge_get_boot_mode()==LGE_BOOT_MODE_CHARGERLOGO
+				|| lge_get_mid_mode()==LGE_LAF_MODE_MID || proxy_sensor_status==PROXY_FAR ) {
+				pr_info("%s: dsv_out going to be +-6v\n", __func__);
+				lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x06); // i2c control VPOS+VNEG
+			}
+		}
+	} else {
+		if(lge_get_mfts_mode()){
+			if(!mfts_lpwg){
+				pr_info("%s: mfts_lpwg is not set, dsv will be turned off\n", __func__);
+				gpio_set_value((main_lm3632_dev->bl_gpio), 0);
+			}
+		} else {
+			if ( lge_get_boot_mode()==LGE_BOOT_MODE_CHARGERLOGO
+				|| lge_get_mid_mode()==LGE_LAF_MODE_MID || proxy_sensor_status==PROXY_NEAR ) {
+				pr_info("%s: dsv_out going to be hi-z\n", __func__);
+				lm3632_write_reg(main_lm3632_dev->client, 0x0C, 0x00); // Standby
+			}
+		}
 	}
 }
 #endif
@@ -407,6 +486,9 @@ static void lm3632_set_main_current_level(struct i2c_client *client, int level)
 	int min_brightness = dev->min_brightness;
 	int max_brightness = dev->max_brightness;
 
+#if defined (CONFIG_MACH_MSM8916_K5)
+	u8 data;
+#endif
 	if (level == -BOOT_BRIGHTNESS)
 		level = dev->default_brightness;
 
@@ -424,8 +506,14 @@ static void lm3632_set_main_current_level(struct i2c_client *client, int level)
 		if (dev->blmap) {
 			if (level < dev->blmap_size) {
 				cal_value = dev->blmap[level];
-				lm3632_write_reg(client, 0x05,
-						cal_value);
+#if defined (CONFIG_MACH_MSM8916_K5)
+				data = cal_value & LM3632_BRT_LSB_MASK;
+				lm3632_write_reg(client, 0x04, data);
+				data = (cal_value >> LM3632_BRT_MSB_SHIFT) & 0xFF;
+				lm3632_write_reg(client, 0x05, data);
+#else
+				lm3632_write_reg(client, 0x05, cal_value);
+#endif
 			} else
 				dev_warn(&client->dev, "invalid index %d:%d\n",
 						dev->blmap_size,
@@ -435,6 +523,9 @@ static void lm3632_set_main_current_level(struct i2c_client *client, int level)
 			lm3632_write_reg(client, 0x05, cal_value);
 		}
 	} else{
+#if defined (CONFIG_MACH_MSM8916_K5)
+			lm3632_write_reg(client, 0x04, 0x00);
+#endif
 			lm3632_write_reg(client, 0x05, 0x00);
 			bl_ctrl = 0;
 			lm3632_read_reg(main_lm3632_dev->client, 0x0A, &bl_ctrl);
@@ -451,11 +542,19 @@ static void lm3632_set_main_current_level(struct i2c_client *client, int level)
 static void lm3632_set_main_current_level_no_mapping(
 		struct i2c_client *client, int level)
 {
+#if defined(CONFIG_MACH_MSM8916_K5)
+	u8 bl_level;
+#endif
 	struct lm3632_device *dev;
 	dev = (struct lm3632_device *)i2c_get_clientdata(client);
 
+#if defined(CONFIG_MACH_MSM8916_K5)
+	if (level > 2047)
+		level = 2047;
+#else
 	if (level > 255)
 		level = 255;
+#endif
 	else if (level < 0)
 		level = 0;
 
@@ -466,9 +565,16 @@ static void lm3632_set_main_current_level_no_mapping(
 
 	mutex_lock(&main_lm3632_dev->bl_mutex);
 	if (level != 0) {
+#if defined(CONFIG_MACH_MSM8916_K5)
+		bl_level = level & LM3632_BRT_LSB_MASK;
+		lm3632_write_reg(client, 0x04, bl_level);
+		bl_level = (level >> LM3632_BRT_MSB_SHIFT) & 0xFF;
+		lm3632_write_reg(client, 0x05, bl_level);
+#else
 		lm3632_write_reg(client, 0x05, level);
+#endif
 	} else {
-		lm3632_write_reg(client, 0x00, 0x00);
+		lm3632_write_reg(client, 0x00, 0x00);//?????
 	}
 	mutex_unlock(&main_lm3632_dev->bl_mutex);
 }
@@ -478,15 +584,25 @@ void lm3632_backlight_on(int level)
 	if ((backlight_status != BL_ON) && (backlight_status != BOTH_ON)){
 		if(!init_complete)
 			lm3632_hw_reset();
+#if defined(CONFIG_MACH_MSM8916_K5)
+		lm3632_write_reg(main_lm3632_dev->client, 0x02, 0x60);
+#endif
 		bl_ctrl = 0;
 		lm3632_read_reg(main_lm3632_dev->client, 0x0A, &bl_ctrl);
-#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_K5_CAMERA) || \
-		defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL) || defined(CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
+#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_K5_CAMERA) || defined(CONFIG_LGE_PH1_CAMERA) || \
+	defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL) || defined(CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL) || IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
 		bl_ctrl |= 0x09;
 #else
 		bl_ctrl |= 0x11;
 #endif
 		lm3632_write_reg(main_lm3632_dev->client, 0x0A, bl_ctrl);
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CABC_SUPPORT)
+		pr_info("%s: CABC ON!\n", __func__);
+		bl_ctrl = 0;
+		lm3632_read_reg(main_lm3632_dev->client, 0x09, &bl_ctrl);
+		bl_ctrl |= 0x40;
+		lm3632_write_reg(main_lm3632_dev->client, 0x09, bl_ctrl);
+#endif
 		pr_info("%s: ON!\n", __func__);
 	}
 	mdelay(1);
@@ -536,6 +652,9 @@ void lm3632_led_enable(void){
 	if (gpio_get_value(gpio) != 1) {
 		gpio_direction_output(gpio, 1);
 		if (backlight_status == POWER_OFF) {/* LGE_CHANGE, gangsu.baek@lge.com, If display turn off, set backlight brightness 0x00*/
+#if defined (CONFIG_MACH_MSM8916_K5)
+			lm3632_write_reg(main_lm3632_dev->client, 0x04, 0x00);
+#endif
 			lm3632_write_reg(main_lm3632_dev->client, 0x05, 0x00);
 		}
 		mdelay(10);
@@ -800,8 +919,11 @@ static int lm3632_parse_dt(struct device *dev,
 				kfree(array);
 			return -EINVAL;
 		}
+#if defined (CONFIG_MACH_MSM8916_K5)
+		pdata->blmap = kzalloc(sizeof(u16) * pdata->blmap_size, GFP_KERNEL);
+#else
 		pdata->blmap = kzalloc(sizeof(char) * pdata->blmap_size, GFP_KERNEL);
-
+#endif
 		if (!pdata->blmap) {
 			if (array)
 				kfree(array);
@@ -809,8 +931,11 @@ static int lm3632_parse_dt(struct device *dev,
 		}
 
 		for (i = 0; i < pdata->blmap_size; i++ )
+#if defined (CONFIG_MACH_MSM8916_K5)
+			pdata->blmap[i] = (u16)array[i];
+#else
 			pdata->blmap[i] = (char)array[i];
-
+#endif
 		if (array)
 			kfree(array);
 
@@ -847,6 +972,9 @@ static int lm3632_probe(struct i2c_client *i2c_dev,
 	struct backlight_device *bl_dev;
 	struct backlight_properties props;
 	int err;
+#if defined (CONFIG_MACH_MSM8916_K5)
+	int i;
+#endif
 
 	pr_err("[LCD][DEBUG] %s: i2c probe start\n", __func__);
 
@@ -871,7 +999,7 @@ static int lm3632_probe(struct i2c_client *i2c_dev,
 	if (pdata->bl_gpio && gpio_request(pdata->bl_gpio, "lm3632 en") != 0) {
 		return -ENODEV;
 	}
-#if !defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) && !defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
+#if !defined(CONFIG_LGE_DISPLAY_CODE_REFACTORING) && !defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) && !defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) && !defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 	if (pdata->dsv_p_gpio && gpio_request(pdata->dsv_p_gpio, "lm3632 dsv p") != 0) {
 		return -ENODEV;
 	}
@@ -911,18 +1039,26 @@ static int lm3632_probe(struct i2c_client *i2c_dev,
 	dev->blmap_size = pdata->blmap_size;
 
 	if (dev->blmap_size) {
+#if defined (CONFIG_MACH_MSM8916_K5)
+		dev->blmap = kzalloc(sizeof(u16) * dev->blmap_size, GFP_KERNEL);
+#else
 		dev->blmap = kzalloc(sizeof(char) * dev->blmap_size, GFP_KERNEL);
+#endif
 		if (!dev->blmap) {
 			pr_err("%s: Failed to allocate memory\n", __func__);
 			return -ENOMEM;
 		}
+#if defined (CONFIG_MACH_MSM8916_K5)
+		for (i = 0; i < dev->blmap_size; i++ )
+			dev->blmap[i]= (u16)pdata->blmap[i];
+#else
 		memcpy(dev->blmap, pdata->blmap, dev->blmap_size);
+#endif
 	} else {
 		dev->blmap = NULL;
 	}
-
 #ifdef CONFIG_LGE_LCD_OFF_DIMMING
-	if ((lge_get_bootreason() == 0x77665560) || (lge_get_bootreason() == 0x77665561)) {
+	if ((lge_get_bootreasoncode() == 0x77665560) || (lge_get_bootreasoncode() == 0x77665561)) {
 		dev->bl_dev->props.brightness = 10;
 		pr_info("%s : fota reboot - backlight set 10\n", __func__);
 	}
@@ -947,6 +1083,12 @@ static int lm3632_probe(struct i2c_client *i2c_dev,
 			&dev_attr_lm3632_pwm);
 #endif
 	init_complete = 1;
+
+#if defined (CONFIG_MACH_MSM8916_K5)
+    // set backlight mapping curve to exponential
+    lm3632_write_reg(main_lm3632_dev->client, 0x02, 0x60);
+#endif
+
 #if defined(LM3632_FLED_EN)
 if (!id) {
 		pr_err("lm3632_probe: id is NULL");

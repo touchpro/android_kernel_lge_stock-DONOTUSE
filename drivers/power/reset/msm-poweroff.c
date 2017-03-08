@@ -279,6 +279,9 @@ static void msm_restart_prepare(const char *cmd)
 			strcmp(cmd, "bootloader") &&
 			strcmp(cmd, "rtc")))
 			need_warm_reset = true;
+	} else {
+		need_warm_reset = (get_dload_mode() ||
+				(cmd != NULL && cmd[0] != '\0'));
 	}
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
@@ -313,10 +316,20 @@ static void msm_restart_prepare(const char *cmd)
 		 } else if (!strncmp(cmd, "LCD off", 7)) {
                         __raw_writel(0x77665562, restart_reason);
 #endif
-        }else if (!strncmp(cmd, "dm-verity device corrupted", 26 )) {
-            __raw_writel(0x77665506, restart_reason);
         } else if (!strncmp(cmd, "wallpaper_fail", 14)) {
             __raw_writel(0x77665507, restart_reason);
+                } else if (!strncmp(cmd, "dm-verity device corrupted", 26)) {
+                        qpnp_pon_set_restart_reason(
+                                PON_RESTART_REASON_DMVERITY_CORRUPTED);
+                        __raw_writel(0x77665508, restart_reason);
+                } else if (!strcmp(cmd, "dm-verity enforcing")) {
+                        qpnp_pon_set_restart_reason(
+                                PON_RESTART_REASON_DMVERITY_ENFORCE);
+                        __raw_writel(0x77665509, restart_reason);
+                } else if (!strcmp(cmd, "keys clear")) {
+                        qpnp_pon_set_restart_reason(
+                                PON_RESTART_REASON_KEYS_CLEAR);
+                        __raw_writel(0x7766550a, restart_reason);
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned long code;
 			int ret;
@@ -385,8 +398,13 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 		.arginfo = SCM_ARGS(2),
 	};
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+	struct task_struct *task = current_thread_info()->task;
+	pr_notice("Going down for restart now (pid: %d, comm: %s)\n",
+			task->pid, task->comm);
+#else
 	pr_notice("Going down for restart now\n");
-
+#endif
 	msm_restart_prepare(cmd);
 
 #ifdef CONFIG_MSM_DLOAD_MODE
@@ -424,7 +442,13 @@ static void do_msm_poweroff(void)
 		.arginfo = SCM_ARGS(2),
 	};
 
+#ifdef CONFIG_LGE_HANDLE_PANIC
+	struct task_struct *task = current_thread_info()->task;
+	pr_notice("Powering off the SoC (pid: %d, comm: %s)\n",
+			task->pid, task->comm);
+#else
 	pr_notice("Powering off the SoC\n");
+#endif
 #ifdef CONFIG_MSM_DLOAD_MODE
 	set_dload_mode(0);
 #endif

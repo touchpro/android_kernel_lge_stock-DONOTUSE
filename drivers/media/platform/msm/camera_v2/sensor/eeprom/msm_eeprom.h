@@ -68,6 +68,9 @@ struct msm_eeprom_ctrl_t {
 	uint8_t is_supported;
 	struct msm_eeprom_board_info *eboard_info;
 	uint32_t subdev_id;
+	/* LGE_CHANGE_S, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
+	uint8_t AAT_Checksum;
+	/* LGE_CHANGE_E, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
 
 #if defined(CONFIG_MACH_LGE)
 	struct list_head link;
@@ -90,11 +93,14 @@ int32_t msm_eeprom_checksum_cowell(struct msm_eeprom_ctrl_t *e_ctrl);
 
 //Module CheckSum routine
 int32_t msm_eeprom_checksum_cowell_hi841(struct msm_eeprom_ctrl_t *e_ctrl);
+int32_t msm_eeprom_checksum_cowell_imx258(struct msm_eeprom_ctrl_t *e_ctrl);
 int32_t msm_eeprom_checksum_imtech_ov8858(struct msm_eeprom_ctrl_t *e_ctrl);
 int32_t msm_eeprom_checksum_imtech_t4kb3(struct msm_eeprom_ctrl_t *e_ctrl);
 int32_t msm_eeprom_checksum_imtech_hi841(struct msm_eeprom_ctrl_t *e_ctrl);
 int32_t msm_eeprom_checksum_lgit_v0d(struct msm_eeprom_ctrl_t *e_ctrl);
 int32_t msm_eeprom_checksum_lgit_v0d_t4ka3(struct msm_eeprom_ctrl_t *e_ctrl);
+int32_t msm_eeprom_checksum_lgit_hi553(struct msm_eeprom_ctrl_t *e_ctrl);
+int32_t msm_eeprom_checksum_lgit_mn34153(struct msm_eeprom_ctrl_t *e_ctrl);
 
 //Helper function for arithmetic shifted addition / just accumulation
 uint32_t shiftedSum (struct msm_eeprom_ctrl_t *e_ctrl, uint32_t startAddr, uint32_t endAddr, Endian endian);

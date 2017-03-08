@@ -33,7 +33,7 @@
 #include <linux/input.h>
 #include <linux/input/mt.h>
 
-#include "touch_hwif.h"
+#include <touch_hwif.h>
 #include <linux/input/lge_touch_notify.h>
 
 #define LGE_TOUCH_NAME			"lge_touch"
@@ -92,8 +92,10 @@ extern u32 touch_debug_mask;
 #define TOUCH_IRQ_FINGER		(1 << 0)
 #define TOUCH_IRQ_KNOCK			(1 << 1)
 #define TOUCH_IRQ_PASSWD		(1 << 2)
-#define TOUCH_IRQ_SWIPE_RIGHT		(1 << 3)
-#define TOUCH_IRQ_SWIPE_LEFT		(1 << 4)
+#define TOUCH_IRQ_SWIPE_DOWN		(1 << 3)
+#define TOUCH_IRQ_SWIPE_UP		(1 << 4)
+#define TOUCH_IRQ_SWIPE_RIGHT		(1 << 5)
+#define TOUCH_IRQ_SWIPE_LEFT		(1 << 6)
 #define TOUCH_IRQ_ERROR			(1 << 15)
 
 enum {
@@ -101,6 +103,7 @@ enum {
 	POWER_SLEEP,
 	POWER_WAKE,
 	POWER_ON,
+	POWER_SLEEP_STATUS,
 };
 
 enum {
@@ -119,7 +122,8 @@ enum {
 };
 
 enum {
-	DEV_PM_RESUME = 0,
+	DEV_PM_AWAKE = 0,
+	DEV_PM_RESUME,
 	DEV_PM_SUSPEND,
 	DEV_PM_SUSPEND_IRQ,
 };
@@ -127,6 +131,11 @@ enum {
 enum {
 	FB_RESUME = 0,
 	FB_SUSPEND,
+};
+
+enum {
+	SP_DISCONNECT = 0,
+	SP_CONNECT,
 };
 
 /* Deep Sleep or not */
@@ -213,6 +222,7 @@ enum {
 	MFTS_NONE = 0,
 	MFTS_FOLDER,
 	MFTS_FLAT,
+	MFTS_CURVED,
 };
 
 enum { /* Command lists */
@@ -244,6 +254,56 @@ enum {
 	CONNECT_HUB, /* SHOULD NOT change the value */
 };
 
+enum {
+	EARJACK_NONE = 0,
+	EARJACK_NORMAL,
+	EARJACK_DEBUG,
+};
+
+enum {
+	DEBUG_TOOL_DISABLE = 0,
+	DEBUG_TOOL_ENABLE,
+};
+
+enum {
+	DEBUG_OPTION_DISABLE = 0,
+	DEBUG_OPTION_0 = 1,
+	DEBUG_OPTION_1 = 2,
+	DEBUG_OPTION_2 = 4,
+	DEBUG_OPTION_3 = 8,
+	DEBUG_OPTION_4 = 16,
+	DEBUG_OPTION_5 = 32,
+	DEBUG_OPTION_6 = 64,
+	DEBUG_OPTION_7 = 128,
+	DEBUG_OPTION_8 = 256,
+	DEBUG_OPTION_9 = 512,
+	DEBUG_OPTION_ALL = 1023,
+};
+
+enum {
+	NORMAL_BOOT = 0,
+	MINIOS_AAT,
+	MINIOS_MFTS_FOLDER,
+	MINIOS_MFTS_FLAT,
+	MINIOS_MFTS_CURVED,
+};
+
+enum {
+	REV0 = 0,
+	REV1,
+	REV2,
+};
+
+enum {
+	TOUCH_UEVENT_KNOCK = 0,
+	TOUCH_UEVENT_PASSWD,
+	TOUCH_UEVENT_SWIPE_DOWN,
+	TOUCH_UEVENT_SWIPE_UP,
+	TOUCH_UEVENT_SWIPE_RIGHT,
+	TOUCH_UEVENT_SWIPE_LEFT,
+	TOUCH_UEVENT_SIZE,
+};
+
 struct state_info {
 	atomic_t core;
 	atomic_t pm;
@@ -258,6 +318,10 @@ struct state_info {
 	atomic_t quick_cover;
 	atomic_t incoming_call;
 	atomic_t mfts;
+	atomic_t sp_link;
+	atomic_t debug_tool;
+	atomic_t debug_option_mask;
+	atomic_t onhand;
 };
 
 struct touch_driver {
@@ -291,6 +355,7 @@ struct touch_operation_role {
 	bool use_lpwg;
 	bool use_firmware;
 	u32 use_lpwg_test;
+	bool hide_coordinate;
 	u32 mfts_lpwg;
 };
 
@@ -302,12 +367,12 @@ struct touch_quick_cover {
 };
 
 struct tci_info {
-	u8 tap_count;
-	u8 min_intertap;
-	u8 max_intertap;
-	u8 touch_slop;
-	u8 tap_distance;
-	u8 intr_delay;
+	u16 tap_count;
+	u16 min_intertap;
+	u16 max_intertap;
+	u16 touch_slop;
+	u16 tap_distance;
+	u16 intr_delay;
 };
 
 struct active_area {
@@ -336,7 +401,7 @@ struct touch_data {
 	u16 y;
 	u16 width_major;
 	u16 width_minor;
-	u16 orientation;
+	s16 orientation;
 	u16 pressure;
 	/* finger, palm, pen, glove, hover */
 	u16 type;
@@ -373,7 +438,7 @@ struct touch_core_data {
 
 	int reset_pin;
 	int int_pin;
-	int maker_id_pin;
+
 	int vdd_pin;
 	int vio_pin;
 
@@ -391,7 +456,7 @@ struct touch_core_data {
 	u16 old_mask;
 	int tcount;
 	struct touch_data tdata[MAX_FINGER];
-	int is_palm;
+	int is_cancel;
 	struct lpwg_info lpwg;
 	struct tci_ctrl tci;
 
@@ -400,6 +465,10 @@ struct touch_core_data {
 	char test_fwpath[256];
 	const char *panel_spec;
 	const char *panel_spec_mfts;
+	const char *panel_spec_mfts_flat;
+	const char *panel_spec_mfts_curved;
+	int jitter_spec;
+	int jitter_avg_spec;
 	u8 force_fwup;
 
 	u8 *tx_buf;
@@ -412,9 +481,11 @@ struct touch_core_data {
 	struct delayed_work init_work;
 	struct delayed_work upgrade_work;
 	struct delayed_work notify_work;
+	struct delayed_work fb_work;
 
 	struct notifier_block blocking_notif;
 	struct notifier_block atomic_notif;
+	struct notifier_block notif;
 	unsigned long notify_event;
 	int notify_data;
 #if defined(CONFIG_HAS_EARLYSUSPEND)
@@ -498,10 +569,13 @@ static inline struct touch_core_data *to_touch_core(struct device *dev)
 
 int touch_lpwg(struct touch_core_data *ts, u32 code, int *value);
 
+extern irqreturn_t touch_irq_handler(int irq, void *dev_id);
+extern irqreturn_t touch_irq_thread(int irq, void *dev_id);
 extern void touch_msleep(unsigned int msecs);
 extern int touch_get_dts(struct touch_core_data *ts);
 extern int touch_get_platform_data(struct touch_core_data *ts);
 extern int touch_init_sysfs(struct touch_core_data *ts);
+extern void touch_interrupt_control(struct device *dev, int on_off);
 extern void touch_report_all_event(struct touch_core_data *ts);
 
 #endif /* LGE_TOUCH_CORE_H */

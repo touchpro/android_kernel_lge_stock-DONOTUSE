@@ -38,14 +38,6 @@
 
 #define MAX_ITERATOR	30000
 
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-#define TEST_WAIT_CNT	1000
-#else
-#define TEST_WAIT_CNT	100
-#endif
-
-#define BUF_MAX_SIZE	255
-
 extern int is_probed;
 
 struct isc_packet {
@@ -351,28 +343,28 @@ int mip_flash_fw(struct mit_data *info, const u8 *fw_data, size_t fw_size, bool 
 		info->module.bin_version[1] =  bin_info->ver_app;
 		strncpy(info->module.bin_chip_name, bin_info->chip_name, strlen(bin_info->chip_name));
 	}
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	dev_info(&client->dev, "%s - product_code = %s\n", __func__, info->module.product_code);
-#endif
-	if (force == true) {
+	if(force == true){
 		//Force update
 		dev_info(&client->dev, "%s - Skip chip firmware version check\n", __func__);
-	} else {
+	}
+	else{
 		//Read firmware version from chip
-		while (retry--) {
-			if (!mip_get_fw_version_u16(info->client, &ver_chip)) {
+		while(retry--){
+			if(!mip_get_fw_version_u16(info->client, &ver_chip)){
 				break;
-			} else {
+			}
+			else{
 				mip_reboot(info->client);
 			}
 		}
-		if (retry < 0) {
+		if(retry < 0){
 			dev_err(&client->dev, "%s [ERROR] Unknown chip firmware version\n", __func__);
-		} else {
+		}
+		else{
 			dev_info(&client->dev, "%s - Chip firmware version [0x%04X]\n", __func__, ver_chip);
 
 			//Compare version
-			if ((ver_chip == bin_info->ver_app)) {
+			if((ver_chip == bin_info->ver_app)){
 				dev_info(&client->dev, "%s - Chip firmware is already up-to-date\n", __func__);
 				ret = fw_err_uptodate;
 				goto EXIT;
@@ -454,7 +446,6 @@ ERROR:
 	mip_reboot(info->client);
 
 	dev_err(&client->dev, "%s [ERROR]\n", __func__);
-
 EXIT:
 	dev_dbg(&client->dev, "%s [DONE]\n", __func__);
 
@@ -1242,7 +1233,7 @@ static int get_rawdata(struct mit_data *ts)
 int mip_run_test(struct mit_data *ts, u8 test_type)
 {
 	int busy_cnt = 50;
-	int wait_cnt = TEST_WAIT_CNT;
+	int wait_cnt = 50;
 	u8 wbuf[8];
 	u8 rbuf[512] = {0};
 	u8 size = 0;
@@ -1311,7 +1302,7 @@ int mip_run_test(struct mit_data *ts, u8 test_type)
 		goto ERROR;
 	}
 	//wait ready status
-	wait_cnt = TEST_WAIT_CNT;
+	wait_cnt = 100;
 	while(wait_cnt--){
 		if(mip_get_ready_status(ts) == MIP_CTRL_STATUS_READY){
 			break;
@@ -1337,7 +1328,7 @@ int mip_run_test(struct mit_data *ts, u8 test_type)
 	}
 	dev_dbg(&ts->client->dev, "%s - set test type\n", __func__);
 	//wait ready status
-	wait_cnt = TEST_WAIT_CNT;
+	wait_cnt = 100;
 	while(wait_cnt--){
 		if(mip_get_ready_status(ts) == MIP_CTRL_STATUS_READY){
 			break;
@@ -1399,7 +1390,7 @@ int mip_run_test(struct mit_data *ts, u8 test_type)
 		goto ERROR;
 	}
 	//wait ready status
-	wait_cnt = TEST_WAIT_CNT;
+	wait_cnt = 100;
 	while(wait_cnt--){
 		if(mip_get_ready_status(ts) == MIP_CTRL_STATUS_READY){
 			break;
@@ -1570,8 +1561,8 @@ static int  print_rawdata(struct mit_data *ts, char *buf,int type)
 	}
 
 	if (type == RAW_DATA_SHOW) {
-		ret += sprintf(buf + ret,"MAX = %d,  MIN = %d  (MAX - MIN = %d)\n",ts->r_max , ts->r_min, ts->r_max - ts->r_min);
-		TOUCH_INFO_MSG("MAX : %d,  MIN : %d  (MAX - MIN = %d)\n",ts->r_max , ts->r_min, ts->r_max - ts->r_min);
+		ret += sprintf(buf + ret,"MAX = %d,  MIN = %d  (MAX - MIN = %d)\n\n",ts->r_max , ts->r_min, ts->r_max - ts->r_min);
+		TOUCH_INFO_MSG("MAX : %d,  MIN : %d  (MAX - MIN = %d)\n\n",ts->r_max , ts->r_min, ts->r_max - ts->r_min);
 	}
 
 	if (ts->module.otp == OTP_APPLIED) {
@@ -1639,11 +1630,11 @@ static int  print_cm_delta_data(struct mit_data *ts, char *buf, int type)
 		TOUCH_INFO_MSG("CM DELTA TEST SPEC : %d\n", ts->pdata->limit->cm_delta);
 		ret += sprintf(buf + ret,"CM DELTA TEST SPEC : %d\n", ts->pdata->limit->cm_delta);
 		if(ts->pdata->selfdiagnostic_state[SD_CM_DELTA] ==  1) {
-			TOUCH_INFO_MSG("CM DELTA Test : Pass\n");
-			ret += sprintf(buf + ret,"CM DELTA Test : PASS\n");
+			TOUCH_INFO_MSG("CM DELTA Test : Pass\n\n");
+			ret += sprintf(buf + ret,"CM DELTA Test : PASS\n\n");
 		} else {
-			TOUCH_INFO_MSG("CM DELTA Test : Fail\n");
-			ret += sprintf(buf + ret,"CM DELTA Test : FAIL\n");
+			TOUCH_INFO_MSG("CM DELTA Test : Fail\n\n");
+			ret += sprintf(buf + ret,"CM DELTA Test : FAIL\n\n");
 		}
 	}
 	return ret;
@@ -1654,16 +1645,8 @@ static int  print_cm_jitter_data(struct mit_data *ts, char *buf, int type)
 	int col = 0;
 	int row = 0;
 	int ret = 0;
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	int j_ave_1 = 0;
-	int j_ave_2 = 0;
-#endif
-
 	ts->j_min = ts->mit_data[0][0];
 	ts->j_max = ts->mit_data[0][0];
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	ts->j_ave_max = 0;
-#endif
 
 	for (row = 0 ; row < ts->dev.row_num ; row++) {
 		if (type == CM_JITTER_SHOW) {
@@ -1682,50 +1665,25 @@ static int  print_cm_jitter_data(struct mit_data *ts, char *buf, int type)
 			ts->j_min = (ts->j_min > ts->mit_data[row][col]) ? ts->mit_data[row][col] : ts->j_min;
 			ts->j_max = (ts->j_max < ts->mit_data[row][col]) ? ts->mit_data[row][col] : ts->j_max;
 
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-			if (col < ts->dev.col_num /2)
-				j_ave_1 += ts->mit_data[row][col];
-			else
-				j_ave_2 += ts->mit_data[row][col];
-#endif
 		}
 
 		if (type == CM_JITTER_SHOW) {
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-			j_ave_1 = j_ave_1 / (ts->dev.col_num /2);
-			j_ave_2 = j_ave_2 / (ts->dev.col_num /2);
-			ts->j_ave_max = (ts->j_ave_max < j_ave_1) ? j_ave_1 : ts->j_ave_max;
-			ts->j_ave_max = (ts->j_ave_max < j_ave_2) ? j_ave_2 : ts->j_ave_max;
-#endif
 			ret += sprintf(buf + ret,"\n");
 			printk("\n");
 		}
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-		j_ave_1 = 0;
-		j_ave_2 = 0;
-#endif
 	}
 
 	if (type == CM_JITTER_SHOW) {
 
-#if !defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
 		if (ts->j_max > ts->pdata->limit->cm_jitter)
 			ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 0;
-#endif
 
 		printk("\n");
 		ret += sprintf(buf + ret,"\n");
 
-		ret += sprintf(buf + ret,"MAX = %d,  MIN = %d  (MAX - MIN = %d)\n",ts->j_max , ts->j_min, ts->j_max - ts->j_min);
-		TOUCH_INFO_MSG("MAX : %d,  MIN : %d  (MAX - MIN = %d)\n",ts->j_max , ts->j_min, ts->j_max - ts->j_min);
+		ret += sprintf(buf + ret,"MAX = %d,  MIN = %d  (MAX - MIN = %d)\n\n",ts->j_max , ts->j_min, ts->j_max - ts->j_min);
+		TOUCH_INFO_MSG("MAX : %d,  MIN : %d  (MAX - MIN = %d)\n\n",ts->j_max , ts->j_min, ts->j_max - ts->j_min);
 
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-		ret += sprintf(buf + ret,"AVERAGE JITTER MAX = %d\n",ts->j_ave_max);
-		TOUCH_INFO_MSG("AVERAGE JITTER MAX = %d\n",ts->j_ave_max);
-
-		TOUCH_INFO_MSG("CM JITTER TEST SPEC: %d, %d\n", ts->pdata->limit->cm_jitter, AVERAGE_JITTER_LIMIT);
-		ret += sprintf(buf + ret,"CM JITTER TEST SPEC: %d, %d\n", ts->pdata->limit->cm_jitter, AVERAGE_JITTER_LIMIT);
-#else
 		TOUCH_INFO_MSG("CM JITTER TEST SPEC: %d\n", ts->pdata->limit->cm_jitter);
 		ret += sprintf(buf + ret,"CM JITTER TEST SPEC: %d\n", ts->pdata->limit->cm_jitter);
 		if(ts->pdata->selfdiagnostic_state[SD_CM_JITTER] ==  1) {
@@ -1735,7 +1693,6 @@ static int  print_cm_jitter_data(struct mit_data *ts, char *buf, int type)
 			TOUCH_INFO_MSG("OpenShort Test : Fail\n\n");
 			ret += sprintf(buf + ret,"CM JITTER Test : FAIL\n\n");
 		}
-#endif
 	}
 	return ret;
 }
@@ -1780,17 +1737,17 @@ static int  print_openshort_data(struct mit_data *ts, char *buf, int type)
 		printk("\n");
 		ret += sprintf(buf + ret,"\n");
 
-		ret += sprintf(buf + ret,"MAX = %d,  MIN = %d  (MAX - MIN = %d)\n",ts->o_max , ts->o_min, ts->o_max - ts->o_min);
-		TOUCH_INFO_MSG("MAX : %d,  MIN : %d  (MAX - MIN = %d)\n",ts->o_max , ts->o_min, ts->o_max - ts->o_min);
+		ret += sprintf(buf + ret,"MAX = %d,  MIN = %d  (MAX - MIN = %d)\n\n",ts->o_max , ts->o_min, ts->o_max - ts->o_min);
+		TOUCH_INFO_MSG("MAX : %d,  MIN : %d  (MAX - MIN = %d)\n\n",ts->o_max , ts->o_min, ts->o_max - ts->o_min);
 
 		TOUCH_INFO_MSG("OPEN / SHORT TEST SPEC(MIN : %d, MAX : %d)\n", ts->pdata->limit->open_short_min, ts->pdata->limit->open_short_max);
 		ret += sprintf(buf + ret,"OPEN / SHORT TEST SPEC(MIN : %d, MAX : %d)\n", ts->pdata->limit->open_short_min, ts->pdata->limit->open_short_max);
 		if(ts->pdata->selfdiagnostic_state[SD_OPENSHORT] ==  1) {
-			TOUCH_INFO_MSG("OpenShort Test : Pass\n");
-			ret += sprintf(buf + ret,"OpenShort Test : PASS\n");
+			TOUCH_INFO_MSG("OpenShort Test : Pass\n\n");
+			ret += sprintf(buf + ret,"OpenShort Test : PASS\n\n");
 		} else {
-			TOUCH_INFO_MSG("OpenShort Test : Fail\n");
-			ret += sprintf(buf + ret,"OpenShort Test : FAIL\n");
+			TOUCH_INFO_MSG("OpenShort Test : Fail\n\n");
+			ret += sprintf(buf + ret,"OpenShort Test : FAIL\n\n");
 		}
 	}
 	return ret;
@@ -1903,7 +1860,7 @@ ssize_t mit_get_test_result(struct i2c_client *client, char *buf, int type)
 {
 
 	struct mit_data *ts = (struct mit_data *) get_touch_handle_(client);
-	char temp_buf[BUF_MAX_SIZE] = {0,};
+	char temp_buf[255] = {0,};
 	int i = 0;
 	int ret = 0;
 	int fd = 0;
@@ -2009,7 +1966,7 @@ ssize_t mit_get_test_result(struct i2c_client *client, char *buf, int type)
 			}
 			break;
 		case RAW_DATA_STORE:
-			snprintf(temp_buf, BUF_MAX_SIZE, "%s", buf);
+			snprintf(temp_buf, strlen(buf), "%s", buf);
 			sprintf(data_path, "/sdcard/%s.csv", temp_buf);
 
 			ret = print_rawdata(ts, read_buf, type);
@@ -2040,7 +1997,7 @@ ssize_t mit_get_test_result(struct i2c_client *client, char *buf, int type)
 			}
 			break;
 		case OPENSHORT_STORE :
-			snprintf(temp_buf,BUF_MAX_SIZE,"%s", buf);
+			snprintf(temp_buf,strlen(buf),"%s", buf);
 			sprintf(data_path,"/sdcard/%s_openshort.csv", temp_buf);
 			if (ts->pdata->check_openshort == 1)
 				ret = print_openshort_data(ts, read_buf, type);
@@ -2070,7 +2027,7 @@ ssize_t mit_get_test_result(struct i2c_client *client, char *buf, int type)
 			}
 			break;
 		case CM_DELTA_STORE :
-			snprintf(temp_buf,BUF_MAX_SIZE,"%s", buf);
+			snprintf(temp_buf,strlen(buf),"%s", buf);
 			sprintf(data_path,"/sdcard/%s_cmdelta.csv", temp_buf);
 			ret = print_cm_delta_data(ts, read_buf, type);
 			if ( ret < 0) {
@@ -2099,7 +2056,7 @@ ssize_t mit_get_test_result(struct i2c_client *client, char *buf, int type)
 			}
 			break;
 		case CM_JITTER_STORE :
-			snprintf(temp_buf,BUF_MAX_SIZE,"%s", buf);
+			snprintf(temp_buf,strlen(buf),"%s", buf);
 			sprintf(data_path,"/sdcard/%s_cmjitter.csv", temp_buf);
 			ret = print_cm_jitter_data(ts, read_buf, type);
 			if ( ret < 0) {

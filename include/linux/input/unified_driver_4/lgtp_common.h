@@ -223,6 +223,14 @@ typedef struct TouchDeviceInfoTag {
 	u16 modelID;
 	u16 isOfficial;
 	u16 version;
+	u8 product_code[16];
+	u8 display_id;
+	u8 ic_name[5];
+	u8 row_num;
+	u8 col_num;
+	u8 key_num;
+	u16 x_resolution;
+	u16 y_resolution;
 } TouchFirmwareInfo;
 
 typedef struct LpwgSettingTag {
@@ -308,6 +316,9 @@ typedef struct TouchDriverDataTag {
 	struct delayed_work		work_upgrade;
 	struct delayed_work		work_irq;
 	struct delayed_work		work_init;
+#if defined(TOUCH_USE_RECOVERY)
+	struct delayed_work		work_recovery;
+#endif
 	struct mutex			thread_lock;
 	struct wake_lock		lpwg_wake_lock;
 	struct power_supply 	ta_status;
@@ -316,6 +327,9 @@ typedef struct TouchDriverDataTag {
 	int isSuspend;
 	int bootMode;
 	int fpsChanged;
+#if defined(TOUCH_USE_RECOVERY)
+	int isRecovery;
+#endif
 
 	TouchState currState;
 	TouchState nextState;

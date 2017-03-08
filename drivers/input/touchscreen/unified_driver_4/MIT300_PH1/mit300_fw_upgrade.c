@@ -134,7 +134,7 @@ static int mip_isc_erase_page(struct melfas_ts_data *ts, int offset)
 	write_buf[6] = (u8)((offset >> 8) & 0xFF);
 	write_buf[7] = (u8)(offset & 0xFF);
 
-	if(Mit300_I2C_Write(client, write_buf, 8)){
+	if ( Mit300_I2C_Write(client, write_buf, 8) < 0 ){
 		TOUCH_ERR("Mit300_I2C_Write failed\n");
 		goto ERROR;
 	}
@@ -199,7 +199,7 @@ static int mip_isc_program_page(struct melfas_ts_data *ts, int offset, const u8 
 
 	memcpy(&write_buf[8], data, length);
 
-	if(Mit300_I2C_Write(ts->client, write_buf, (length + 8))){
+	if ( Mit300_I2C_Write(ts->client, write_buf, (length + 8)) < 0 ) {
 		TOUCH_ERR("Mit300_I2C_Write failed\n");
 		goto ERROR;
 	}
@@ -223,7 +223,7 @@ static int mip_isc_enter(struct melfas_ts_data *ts)
 {
 	u8 write_buf[8] = ISC_CMD_ENTER;
 
-	if(Mit300_I2C_Write(ts->client, write_buf, 8)){
+	if ( Mit300_I2C_Write(ts->client, write_buf, 8) < 0 ) {
 		TOUCH_ERR("Mit300_I2C_Write failed\n");
 		goto ERROR;
 	}
@@ -249,7 +249,7 @@ int mip_isc_exit(struct melfas_ts_data *ts)
 
 	TOUCH_LOG("mip_isc_exit [START]\n");
 
-	if(Mit300_I2C_Write(ts->client, write_buf, 8)){
+	if ( Mit300_I2C_Write(ts->client, write_buf, 8) < 0 ) {
 		TOUCH_ERR("Mit300_I2C_Write failed\n");
 		goto ERROR;
 	}

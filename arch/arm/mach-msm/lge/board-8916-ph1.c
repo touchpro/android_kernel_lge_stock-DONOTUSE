@@ -149,7 +149,7 @@ void __init msm8916_add_drivers(void)
 #ifdef CONFIG_LGE_USB_G_ANDROID
 	 lge_add_android_usb_devices();
 #endif
-#ifdef CONFIG_LGE_DIAG_ENABLE_SYSFS
+#ifdef CONFIG_LGE_USB_DIAG_LOCK
 	 lge_add_diag_devices();
 #endif
 #if defined(CONFIG_LCD_KCAL)

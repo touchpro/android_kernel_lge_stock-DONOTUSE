@@ -19,6 +19,14 @@
 #define __LGE_POWER_SYSFS_H_
 
 #define PWR_SYSFS_GROUPS_NUM 9
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+#ifdef PWR_SYSFS_GROUPS_NUM
+#undef PWR_SYSFS_GROUPS_NUM
+#endif
+#define PWR_SYSFS_GROUPS_NUM 10
+#endif
+
 #define PWR_SYSFS_MANDATORY_MAX_NUM 5
 
 struct power_sysfs_array {
@@ -40,6 +48,9 @@ const char *group_names[PWR_SYSFS_GROUPS_NUM] = {
 	"battery",
 	"charger",
 	"lcd",
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+	"lcd_ex",
+#endif
 	"key_led",
 	"cpu",
 	"gpu",
@@ -49,6 +60,14 @@ const char *group_names[PWR_SYSFS_GROUPS_NUM] = {
 
 /* Set sysfs node for non-using DT */
 #define PWR_SYSFS_PATH_NUM 51
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+#ifdef PWR_SYSFS_PATH_NUM
+#undef PWR_SYSFS_PATH_NUM
+#endif
+#define PWR_SYSFS_PATH_NUM 53
+#endif
+
 const char *default_pwr_sysfs_path[PWR_SYSFS_PATH_NUM][3] = {
 	/* ADC/MPP */
 	{"adc", "thermal", "/sys/class/thermal/"},
@@ -88,6 +107,11 @@ const char *default_pwr_sysfs_path[PWR_SYSFS_PATH_NUM][3] = {
 	/* LCD Backlight */
 	{"lcd", "brightness", "/sys/class/leds/lcd-backlight/brightness"},
 	{"lcd", "max_brightness", "/sys/class/leds/lcd-backlight/max_brightness"},
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+	/* LCD Backlight EX */
+	{"lcd_ex", "brightness", "/sys/class/leds/lcd-backlight-ex/brightness"},
+	{"lcd_ex", "max_brightness", "/sys/class/leds/lcd-backlight-ex/max_brightness"},
+#endif
 	/* KEY LED */
 	{"key_led", "red_brightness", "/sys/class/leds/red/brightness"},
 	{"key_led", "green_brightness", "/sys/class/leds/green/brightness"},

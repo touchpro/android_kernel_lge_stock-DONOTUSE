@@ -171,6 +171,10 @@ static int msm_eeprom_config(struct msm_eeprom_ctrl_t *e_ctrl,
 	case CFG_EEPROM_GET_INFO:
 		CDBG("%s E CFG_EEPROM_GET_INFO\n", __func__);
 		cdata->is_supported = e_ctrl->is_supported;
+		/* LGE_CHANG_S, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
+		cdata->position = e_ctrl->position;
+		cdata->AAT_Checksum = e_ctrl->AAT_Checksum;
+		/* LGE_CHANG_E, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
 		memcpy(cdata->cfg.eeprom_name,
 			e_ctrl->eboard_info->eeprom_name,
 			sizeof(cdata->cfg.eeprom_name));
@@ -365,6 +369,17 @@ static int read_eeprom_memory(struct msm_eeprom_ctrl_t *e_ctrl,
 				return rc;
 			}
 			memptr += emap[j].mem.valid_size;
+#if defined(CONFIG_MACH_LGE)
+			/*
+			 *We need to change slave address for read data (ATMEL)
+			 *I2C addr : 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57
+			*/
+			if(!strncmp(eb_info->eeprom_name, "hi553", 5))
+			{
+				CDBG("%s: I2C address : 0x%x\n", __func__, e_ctrl->i2c_client.cci_client->sid);
+				e_ctrl->i2c_client.cci_client->sid++;
+			}
+#endif
 		}
 		if (emap[j].pageen.valid_size) {
 			e_ctrl->i2c_client.addr_type = emap[j].pageen.addr_t;
@@ -485,7 +500,7 @@ static struct v4l2_subdev_ops msm_eeprom_subdev_ops = {
 };
 
 #if defined(HI544_LGIT_MODULE)
-static uint32_t msm_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl)
+static uint32_t msm_hi544_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl)
 {
 	int CheckSum = 0;
 	int DataSum = 0;
@@ -558,7 +573,7 @@ static uint32_t msm_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl)
 }
 
 #elif defined(HI544_COWEL_MODULE)
-static uint32_t msm_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl)
+static uint32_t msm_hi544_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl)
 {
 	int CheckSum = 0;
 	int DataSum = 0;
@@ -618,7 +633,8 @@ static uint32_t msm_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl)
     CDBG("<< %s END (rc_supported: 0x%X) @Line:%d\n", __func__, rc_supported, __LINE__);
 	return rc_supported;
 }
-#else
+#endif
+
 static int32_t msm_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl) {
 	int32_t rc = -1;
 	uint8_t eeprom_vendor = e_ctrl->cal_data.mapdata[0x700];
@@ -638,12 +654,12 @@ static int32_t msm_eeprom_checksum(struct msm_eeprom_ctrl_t *e_ctrl) {
 			break;
 		default:
 			pr_err("%s failed to identifying eeprom vendor\n", __func__);
+			rc = msm_eeprom_checksum_lgit(e_ctrl);
 			break;
 	}
 
 	return rc;
 }
-#endif
 
 #define msm_eeprom_spi_parse_cmd(spic, str, name, out, size)		\
 	{								\
@@ -1237,6 +1253,15 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 
 	rc = of_property_read_u32(of_node, "qcom,i2c-freq-mode",
 		&eb_info->i2c_freq_mode);
+
+	/* LGE_CHANGE_S, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
+		if (0 > of_property_read_u32(of_node, "qcom,sensor-position",
+		&e_ctrl->position)) {
+		CDBG("%s:%d Default sensor position\n", __func__, __LINE__);
+		e_ctrl->position = 0;
+		}
+		/* LGE_CHANGE_E, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
+
 	if (rc < 0 || (eb_info->i2c_freq_mode >= I2C_MAX_MODES)) {
 		eb_info->i2c_freq_mode = I2C_STANDARD_MODE;
 		CDBG("%s Default I2C standard speed mode.\n", __func__);
@@ -1301,29 +1326,51 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 					j+1, e_ctrl->cal_data.mapdata[j+1]);
 	}
 
-	e_ctrl->is_supported |= msm_eeprom_match_crc(&e_ctrl->cal_data);
-
+//LGE_CHANGE_S, HI544 EEPROM CHECKSUM, Camera-Driver@lge.com, 2014-07-07
+	//e_ctrl->is_supported |= msm_eeprom_match_crc(&e_ctrl->cal_data);
 #if defined(HI544_LGIT_MODULE) || defined(HI544_COWEL_MODULE)
-	CDBG("[CHECK] [BEFORE] e_ctrl->is_supported: 0x%X", e_ctrl->is_supported);
-	e_ctrl->is_supported |= msm_eeprom_checksum(e_ctrl);
-	CDBG("[CHECK] [AFTER]  e_ctrl->is_supported: 0x%X", e_ctrl->is_supported);
+	if(!strncmp(eb_info->eeprom_name, "hi544", 5)){
 
-	if ((e_ctrl->is_supported & 0x30) != 0x30){
-		pr_err("%s: CHECKSUM FAIL!!!! Use invalid value for detection of defected module",__func__);
-		e_ctrl->cal_data.mapdata[0] = 0xff;
-		e_ctrl->cal_data.mapdata[1] = 0xff;
+		CDBG("[CHECK] [BEFORE] e_ctrl->is_supported: 0x%X", e_ctrl->is_supported);
+		e_ctrl->is_supported |= msm_hi544_eeprom_checksum(e_ctrl);
+		CDBG("[CHECK] [AFTER]  e_ctrl->is_supported: 0x%X", e_ctrl->is_supported);
 
-		e_ctrl->is_supported |= 0x30;
+		if ((e_ctrl->is_supported & 0x30) != 0x30){
+			pr_err("%s: CHECKSUM FAIL!!!! Use invalid value for detection of defected module",__func__);
+			e_ctrl->cal_data.mapdata[0] = 0xff;
+			e_ctrl->cal_data.mapdata[1] = 0xff;
+
+			e_ctrl->is_supported |= 0x30;
+		}
+	}else{
+		rc = msm_eeprom_checksum(e_ctrl);
+#if defined(CONFIG_MACH_LGE)
+		if(!rc) {
+			main_sensor_id = e_ctrl->cal_data.mapdata[MODULE_VENDOR_ID];
+			pr_err("%s:main_sensor_id 0x%x\n", __func__, main_sensor_id);
+		}
+#endif
+		if (rc) {
+			pr_err("msm_eeprom_checksum failed!!\n");
+		}
 	}
 #else
 	rc = msm_eeprom_checksum(e_ctrl);
-#if defined(CONFIG_MACH_LGE)
-	if(!rc) {
+		/* LGE_CHANGE_S, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
+	    if(rc < 0){
+	    e_ctrl->AAT_Checksum = 0;
+	    }else {
+	    e_ctrl->AAT_Checksum = 1;
+	    }
+        /* LGE_CHANGE_E, Add CRC check code for AAT camera , 2016-02-24, joongeun.choi@lge.com */
+	if (rc) {
+		pr_err("msm_eeprom_checksum failed!!\n");
+	}else{
 		main_sensor_id = e_ctrl->cal_data.mapdata[MODULE_VENDOR_ID];
 		pr_err("%s:main_sensor_id 0x%x\n", __func__, main_sensor_id);
 	}
 #endif
-#endif
+//LGE_CHANGE_E, HI544 EEPROM CHECKSUM, Camera-Driver@lge.com, 2014-07-07
 
 	rc = msm_camera_power_down(power_info, e_ctrl->eeprom_device_type,
 		&e_ctrl->i2c_client);

@@ -15,16 +15,20 @@
  *
  */
 
-#include "touch_core.h"
-#include "touch_lg4945.h"
-#include "touch_hwif.h"
+#define TS_MODULE "[sysfs]"
+/*
+ *  Include to touch core Header File
+ */
+#include <touch_core.h>
+#include <touch_hwif.h>
 
 #define TOUCH_SHOW(ret, buf, fmt, args...) \
 	(ret += snprintf(buf + ret, PAGE_SIZE - ret, fmt, ##args))
 
 static char ime_str[3][8] = {"OFF", "ON", "SWYPE"};
 static char incoming_call_str[3][8] = {"IDLE", "RINGING", "OFFHOOK"};
-static char mfts_str[3][8] = {"NONE", "FOLDER", "FLAT"};
+static char mfts_str[4][8] = {"NONE", "FOLDER", "FLAT", "CURVED"};
+int mfts_lpwg = 0;
 
 static ssize_t show_platform_data(struct device *dev, char *buf)
 {
@@ -35,7 +39,6 @@ static ssize_t show_platform_data(struct device *dev, char *buf)
 	TOUCH_SHOW(ret, buf, "=== Platform Data ===\n");
 	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "reset_pin", ts->reset_pin);
 	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "int_pin", ts->int_pin);
-	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "maker_id_pin", ts->maker_id_pin);
 
 	TOUCH_SHOW(ret, buf, "caps:\n");
 	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "max_x", ts->caps.max_x);
@@ -55,7 +58,8 @@ static ssize_t show_platform_data(struct device *dev, char *buf)
 	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "use_lpwg", ts->role.use_lpwg);
 	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "use_firmware",
 		   ts->role.use_firmware);
-
+	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "hide_coordinate",
+		   ts->role.hide_coordinate);
 	TOUCH_SHOW(ret, buf, "power:\n");
 	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "vdd-gpio", ts->vdd_pin);
 	TOUCH_SHOW(ret, buf, "\t%25s = %d\n", "vio-gpio", ts->vio_pin);
@@ -142,8 +146,8 @@ static ssize_t store_lpwg_notify(struct device *dev,
 	int param[4] = {0, };
 	int mfts_mode = 0;
 
-	mfts_mode = touch_mfts_mode_check(dev);
-	if (mfts_mode && !ts->role.mfts_lpwg)
+	mfts_mode = touch_boot_mode_check(dev);
+	if ((mfts_mode >= MINIOS_MFTS_FOLDER) && !ts->role.mfts_lpwg)
 		return count;
 
 	if (sscanf(buf, "%d %d %d %d %d",
@@ -164,6 +168,9 @@ static ssize_t store_lpwg_notify(struct device *dev,
 		mutex_lock(&ts->lock);
 		ts->driver->lpwg(ts->dev, code, param);
 		mutex_unlock(&ts->lock);
+
+		/* notify to lcd for proximity sensor info */
+		touch_blocking_notifier_call(LCD_EVENT_TOUCH_PROXY_STATUS, (void*)(&(ts->lpwg.sensor)));
 	}
 
 	return count;
@@ -228,6 +235,9 @@ static ssize_t store_ime_state(struct device *dev,
 		return count;
 
 	if (value >= IME_OFF && value <= IME_SWYPE) {
+		if (atomic_read(&ts->state.ime) == value)
+			return count;
+
 		atomic_set(&ts->state.ime, value);
 		ret = touch_blocking_notifier_call(NOTIFY_IME_STATE,
 			&ts->state.ime);
@@ -299,9 +309,14 @@ static ssize_t store_incoming_call_state(struct device *dev,
 		return count;
 
 	if (value >= INCOMING_CALL_IDLE && value <= INCOMING_CALL_OFFHOOK) {
+		if (atomic_read(&ts->state.incoming_call) == value)
+			return count;
+
 		atomic_set(&ts->state.incoming_call, value);
+
 		ret = touch_blocking_notifier_call(NOTIFY_CALL_STATE,
 					&ts->state.incoming_call);
+
 		TOUCH_I("%s : %s(%d)\n", __func__,
 				incoming_call_str[value], value);
 	} else {
@@ -316,7 +331,9 @@ static ssize_t show_version_info(struct device *dev, char *buf)
 	struct touch_core_data *ts = to_touch_core(dev);
 	int ret = 0;
 
+	mutex_lock(&ts->lock);
 	ret = ts->driver->get(dev, CMD_VERSION, NULL, buf);
+	mutex_unlock(&ts->lock);
 
 	return ret;
 }
@@ -326,7 +343,9 @@ static ssize_t show_atcmd_version_info(struct device *dev, char *buf)
 	struct touch_core_data *ts = to_touch_core(dev);
 	int ret = 0;
 
+	mutex_lock(&ts->lock);
 	ret = ts->driver->get(dev, CMD_ATCMD_VERSION, NULL, buf);
+	mutex_unlock(&ts->lock);
 
 	return ret;
 }
@@ -354,7 +373,7 @@ static ssize_t store_mfts_state(struct device *dev,
 	if (sscanf(buf, "%d", &value) <= 0)
 		return count;
 
-	if (value >= MFTS_NONE && value <= MFTS_FLAT) {
+	if (value >= MFTS_NONE && value <= MFTS_CURVED) {
 		atomic_set(&ts->state.mfts, value);
 		TOUCH_I("%s : %s(%d)\n", __func__, mfts_str[value], value);
 	} else {
@@ -384,7 +403,122 @@ static ssize_t store_mfts_lpwg(struct device *dev,
 		return count;
 
 	ts->role.mfts_lpwg = value;
+	mfts_lpwg = value;
 	TOUCH_I("mfts_lpwg:%d\n", ts->role.mfts_lpwg);
+
+	return count;
+}
+
+
+static ssize_t show_sp_link_touch_off(struct device *dev, char *buf)
+{
+	struct touch_core_data *ts = to_touch_core(dev);
+	int ret = 0;
+
+	ret = snprintf(buf, PAGE_SIZE, "sp link touch status %d\n",
+			atomic_read(&ts->state.sp_link));
+
+	return ret;
+}
+
+static ssize_t store_sp_link_touch_off(struct device *dev,
+		const char *buf, size_t count)
+{
+	struct touch_core_data *ts = to_touch_core(dev);
+	int value = 0;
+
+	if (sscanf(buf, "%d", &value) <= 0) {
+		TOUCH_I("Invalid Value\n");
+		return count;
+	}
+
+	atomic_set(&ts->state.sp_link, value);
+
+	if (atomic_read(&ts->state.sp_link) == SP_CONNECT) {
+		touch_interrupt_control(ts->dev, INTERRUPT_DISABLE);
+		TOUCH_I("SP Mirroring Connected\n");
+	} else if(atomic_read(&ts->state.sp_link) == SP_DISCONNECT) {
+		touch_interrupt_control(ts->dev, INTERRUPT_ENABLE);
+		TOUCH_I("SP Mirroring Disconnected\n");
+	}
+
+	return count;
+}
+
+static ssize_t show_debug_tool_state(struct device *dev, char *buf)
+{
+	struct touch_core_data *ts = to_touch_core(dev);
+	int value = 0;
+	int ret = 0;
+
+	value = atomic_read(&ts->state.debug_tool);
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", value);
+
+	return ret;
+}
+
+static ssize_t store_debug_tool_state(struct device *dev,
+		const char *buf, size_t count)
+{
+	int data = 0;
+	struct touch_core_data *ts = to_touch_core(dev);
+
+	if (sscanf(buf, "%d", &data) <= 0)
+		return count;
+
+	if (data >= DEBUG_TOOL_DISABLE && data <= DEBUG_TOOL_ENABLE) {
+		atomic_set(&ts->state.debug_tool, data);
+		ts->driver->notify(dev, NOTIFY_DEBUG_TOOL, (void *)&data);
+		TOUCH_I("%s : %s\n", __func__,
+		(data == DEBUG_TOOL_ENABLE) ?
+		"Debug Tool Enabled" : "Debug Tool Disabled");
+	} else {
+		TOUCH_I("%s : Unknown debug tool set value %d\n", __func__, data);
+	}
+
+	return count;
+}
+
+static ssize_t show_debug_option_state(struct device *dev, char *buf)
+{
+	struct touch_core_data *ts = to_touch_core(dev);
+	int value = 0;
+	int ret = 0;
+
+	value = atomic_read(&ts->state.debug_option_mask);
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", value);
+
+	return ret;
+}
+
+static ssize_t store_debug_option_state(struct device *dev,
+		const char *buf, size_t count)
+{
+	struct touch_core_data *ts = to_touch_core(dev);
+	int new_mask = 0;
+	int old_mask = 0;
+	int data[2] = {0, 0};
+
+	old_mask = atomic_read(&ts->state.debug_option_mask);
+
+	if (sscanf(buf, "%d", &new_mask) <= 0)
+		return count;
+
+	if (new_mask >= DEBUG_OPTION_DISABLE
+		&& new_mask <= DEBUG_OPTION_ALL) {
+		atomic_set(&ts->state.debug_option_mask, new_mask);
+		TOUCH_I("%s : Input masking value = %d\n",
+			__func__, new_mask);
+	} else {
+		TOUCH_I("%s : Unknown debug option set value %d\n", __func__, new_mask);
+	}
+
+	data[0] = new_mask ^ old_mask; //Changed mask
+	data[1] = data[0] & new_mask; //Enable(!=0) or Disable(==0)
+
+	ts->driver->notify(dev, NOTIFY_DEBUG_OPTION, (void *)&data);
 
 	return count;
 }
@@ -405,6 +539,10 @@ static TOUCH_ATTR(version, show_version_info, NULL);
 static TOUCH_ATTR(testmode_ver, show_atcmd_version_info, NULL);
 static TOUCH_ATTR(mfts, show_mfts_state, store_mfts_state);
 static TOUCH_ATTR(mfts_lpwg, show_mfts_lpwg, store_mfts_lpwg);
+static TOUCH_ATTR(sp_link_touch_off,
+	show_sp_link_touch_off, store_sp_link_touch_off);
+static TOUCH_ATTR(debug_tool, show_debug_tool_state, store_debug_tool_state);
+static TOUCH_ATTR(debug_option, show_debug_option_state, store_debug_option_state);
 
 static struct attribute *touch_attribute_list[] = {
 	&touch_attr_platform_data.attr,
@@ -420,6 +558,9 @@ static struct attribute *touch_attribute_list[] = {
 	&touch_attr_testmode_ver.attr,
 	&touch_attr_mfts.attr,
 	&touch_attr_mfts_lpwg.attr,
+	&touch_attr_sp_link_touch_off.attr,
+	&touch_attr_debug_tool.attr,
+	&touch_attr_debug_option.attr,
 	NULL,
 };
 

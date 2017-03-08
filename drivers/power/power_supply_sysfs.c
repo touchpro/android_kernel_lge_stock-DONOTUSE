@@ -321,8 +321,11 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(aicl),
 #endif
 #endif
-#ifdef CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ
+#ifdef CONFIG_LGE_PM_FLOATED_CHARGER
 	POWER_SUPPLY_ATTR(vzw_chg),
+#endif
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	POWER_SUPPLY_ATTR(battery_cycle),
 #endif
 #ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
 	POWER_SUPPLY_ATTR(valid_batt_id),

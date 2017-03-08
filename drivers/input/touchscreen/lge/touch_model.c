@@ -14,14 +14,19 @@
  * GNU General Public License for more details.
  *
  */
+#define TS_MODULE "[model]"
 
 #include <linux/string.h>
-#include "touch_core.h"
 
 #if defined(CONFIG_MTK_PLATFORM)
 #include <mach/mt_gpio.h>
 #include <mach/mt_pm_ldo.h>
 #endif
+
+/*
+ *  Include to touch core Header File
+ */
+#include <touch_core.h>
 
 int touch_get_dts_base(struct touch_core_data *ts)
 {
@@ -31,7 +36,6 @@ int touch_get_dts_base(struct touch_core_data *ts)
 
 	PROPERTY_GPIO(np, "reset-gpio", ts->reset_pin);
 	PROPERTY_GPIO(np, "irq-gpio", ts->int_pin);
-	PROPERTY_GPIO(np, "maker_id-gpio", ts->maker_id_pin);
 	PROPERTY_U32(np, "irqflags", ts->irqflags);
 
 	/* Caps */
@@ -49,6 +53,7 @@ int touch_get_dts_base(struct touch_core_data *ts)
 	PROPERTY_BOOL(np, "use_lpwg", ts->role.use_lpwg);
 	PROPERTY_BOOL(np, "use_firmware", ts->role.use_firmware);
 	PROPERTY_U32(np, "use_lpwg_test", ts->role.use_lpwg_test);
+	PROPERTY_BOOL(np, "hide_coordinate", ts->role.hide_coordinate);
 
 	/* Power */
 	PROPERTY_GPIO(np, "vdd-gpio", ts->vdd_pin);
@@ -66,7 +71,11 @@ int touch_get_dts_base(struct touch_core_data *ts)
 		}
 	}
 	PROPERTY_STRING(np, "panel_spec", ts->panel_spec);
-	PROPERTY_STRING(np, "panel_spec_mfts", ts->panel_spec_mfts);
+	PROPERTY_STRING(np, "panel_spec_mfts_folder", ts->panel_spec_mfts);
+	PROPERTY_STRING(np, "panel_spec_mfts_flat", ts->panel_spec_mfts_flat);
+	PROPERTY_STRING(np, "panel_spec_mfts_curved", ts->panel_spec_mfts_curved);
+	PROPERTY_U32(np, "jitter_spec", ts->jitter_spec);
+	PROPERTY_U32(np, "jitter_avg_spec", ts->jitter_avg_spec);
 	TOUCH_I("end dev.of_node\n");
 
 	return 0;

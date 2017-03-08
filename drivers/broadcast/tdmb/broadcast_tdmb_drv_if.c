@@ -8,7 +8,6 @@
 #include <linux/uaccess.h>        /* copy_to_user */
 #include <linux/compat.h>
 
-
 #include "broadcast_tdmb_typedef.h"
 #include "broadcast_tdmb_drv_ifdef.h"
 
@@ -34,8 +33,6 @@ static int broadcast_tdmb_power_on(void)
     int rc = ERROR;
     rc = device_drv->broadcast_drv_if_power_on();
     device_drv->broadcast_drv_if_user_stop( 0 );
-
-
     return rc;
 }
 
@@ -294,7 +291,7 @@ static int8 broadcast_tdmb_set_nation(void __user *arg)
     return rc;
 }
 
-static ssize_t broadcast_tdmb_open_control(struct inode *inode, struct file *file)
+static Dynamic_32_64 broadcast_tdmb_open_control(struct inode *inode, struct file *file)
 {
     struct broadcast_tdmb_chdevice *the_dev =
            container_of(inode->i_cdev, struct broadcast_tdmb_chdevice, cdev);
@@ -393,7 +390,7 @@ static long broadcast_tdmb_compat_ioctl_control(struct file *flip, unsigned int 
 #define broadcast_tdmb_compat_ioctl_contrl NULL
 #endif
 
-static ssize_t broadcast_tdmb_release_control(struct inode *inode, struct file *file)
+static Dynamic_32_64 broadcast_tdmb_release_control(struct inode *inode, struct file *file)
 {
     return 0;
 }
@@ -435,6 +432,15 @@ static int broadcast_tdmb_device_init(struct broadcast_tdmb_chdevice *pbroadcast
     return rc;
 }
 
+int broadcast_tdmb_is_on(void)
+{
+    int rc = FALSE;
+
+    rc = device_drv->broadcast_drv_if_is_on();
+
+    return rc;
+}
+EXPORT_SYMBOL(broadcast_tdmb_is_on);
 
 int8 broadcast_tdmb_blt_power_on(void)
 {

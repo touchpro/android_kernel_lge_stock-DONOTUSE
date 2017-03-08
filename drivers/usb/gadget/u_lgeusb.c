@@ -41,6 +41,8 @@
 #endif//CONFIG_64BIT
 #include "u_lgeusb.h"
 
+#include <linux/power_supply.h>
+
 static struct mutex lgeusb_lock;
 
 #ifdef CONFIG_LGE_USB_G_AUTORUN
@@ -78,6 +80,40 @@ static bool is_mac_os;
 #endif
 
 static struct lgeusb_dev *_lgeusb_dev;
+
+#if defined(CONFIG_LGE_USB_TYPE_A)
+int uevnet_is_send = 0;
+
+int get_battery_capacity(void) {
+
+	union power_supply_propval ret = {0,};
+	struct power_supply *fuelgauge = power_supply_get_by_name("fuelgauge");
+	if (fuelgauge) {
+		fuelgauge->get_property(fuelgauge, POWER_SUPPLY_PROP_CAPACITY, &ret);
+	} else {
+		pr_err("fuelgauge is null\n");
+		return -1;
+	}
+	return ret.intval;
+}
+
+int send_usb_storage_limited(void) {
+	struct lgeusb_dev *dev = _lgeusb_dev;
+	int soc;
+	char *capacity[2]= { "BATTERY=UNDER_15_PERCENT", NULL };
+
+	soc = get_battery_capacity();
+	if ((soc >= 0) && (soc <= 15)) {
+		kobject_uevent_env(&dev->dev->kobj, KOBJ_CHANGE, capacity);
+		uevnet_is_send = 1;
+		pr_info("%s: storage limited uevent sent\n", __func__);
+		return 1;
+	} else {
+		pr_info("%s: at least a valid battery status ...\n", __func__);
+		return 0;
+	}
+}
+#endif
 
 /* Belows are borrowed from android gadget's ATTR macros ;) */
 #define LGE_ID_ATTR(field, format_string)               \

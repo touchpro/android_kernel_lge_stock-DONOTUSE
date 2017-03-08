@@ -111,6 +111,7 @@ typedef struct {
     int                 use_irq;     /* flag of whether to use interrupt or not  */
     struct hrtimer      timer;       /* structure for timer handler              */
     struct work_struct  work;        /* structure for work queue                 */
+    struct work_struct  int_work;        /* structure for work queue                 */
     struct input_dev    *input_dev;  /* structure pointer for input device       */
     struct input_dev    *input_dev_als;  /* structure pointer for input device       */
     struct delayed_work input_work;  /* structure for work queue                 */
@@ -135,6 +136,7 @@ typedef struct {
 	bool				is_interrupt;
 	bool				is_timer;
 	bool				is_calibrated;
+	bool				ps_first_reported;
 	PS_ALS_CONFIG		config;
 	struct mutex		enable_lock;
 	struct mutex		work_lock;
@@ -144,6 +146,7 @@ typedef struct {
 /* logical functions */
 #ifdef RPR0521_PM_SUSPEND_RESUME
 static atomic_t ps_log = ATOMIC_INIT(0);
+static atomic_t als_log = ATOMIC_INIT(0);
 #endif
 static int					make_init_data(PS_ALS_DATA *ps_als);
 static int 					write_calibration_data_to_fs(unsigned short cal_data);
@@ -198,6 +201,7 @@ static int ps_als_driver_read_alsps_control(unsigned char* data, struct i2c_clie
 /**************************** variable declaration ****************************/
 static const char              rpr0521_driver_ver[] = RPR0521_DRIVER_VER;
 static struct workqueue_struct *rohm_workqueue;
+static struct workqueue_struct *rohm_int_workqueue;
 static PS_ALS_DATA             *ps_als_ginfo;
 
 /*D1-5T-SW-INPUT@lge.com*/
@@ -383,8 +387,13 @@ static ssize_t rpr0521_store_enable(struct device *dev, struct device_attribute 
 	bool is_light = false;
 	unsigned long val = simple_strtoul(buf, NULL, 10);
 	int result = 0;
+    PS_ALS_DATA *ps_als;
 	POWERON_ARG parg = {0,};
 	PWR_ST		pwr_st = {0,};
+
+    struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+    ps_als = i2c_get_clientdata(client);
+	
 
 	if(!strcmp(dev->kobj.name, "lge_proximity")){
 		is_proximity = true;
@@ -412,7 +421,12 @@ static ssize_t rpr0521_store_enable(struct device *dev, struct device_attribute 
 
 	parg.power_als = pwr_st.als_state;
 	parg.power_ps = pwr_st.ps_state;
+#ifdef RPR0521_PM_SUSPEND_RESUME
+	parg.intr = MODE_BOTH;
+#else
 	parg.intr = MODE_PROXIMITY;
+#endif
+
 
 	if(val == 1){
 		if(is_proximity){
@@ -435,6 +449,7 @@ static ssize_t rpr0521_store_enable(struct device *dev, struct device_attribute 
 	else if(val == 0){
 		if(is_proximity){
 			parg.power_ps = PS_ALS_DISABLE;
+			ps_als_ginfo->ps_first_reported = false;
 			PINFO("change proximity sensor power state to (%ld)", val);
 			if(pwr_st.ps_state == CTL_STANDBY){
 				PINFO("proximity sensor is already disabled");
@@ -464,13 +479,20 @@ static ssize_t rpr0521_store_enable(struct device *dev, struct device_attribute 
 	if(val==1){
 		if(is_proximity){
 			ps_als_ginfo->cross_talk = read_calibration_data_from_fs();
+
+			// initialize current state to far for the setting of initial threshold
+			update_ps_value(PS_THRESHOLD_MIN);
+			input_report_abs(ps_als_ginfo->input_dev, ABS_DISTANCE, (ps_als_ginfo->ps_value==true)? 0:1);
+			input_sync(ps_als_ginfo->input_dev);
 			ps_als_ginfo->enable = PS_ALS_ENABLE;
-			ps_als_driver_write_ps_th_h(PS_THRESHOLD_MIN, ps_als_ginfo->client);
-			ps_als_driver_write_ps_th_l(PS_THRESHOLD_MAX, ps_als_ginfo->client);
 		}
 		else if(is_light){
 			/* start timer of 1 second */
-			result = hrtimer_start(&ps_als_ginfo->timer, ktime_set(0, 125000000), HRTIMER_MODE_REL);
+			result = hrtimer_start(&ps_als_ginfo->timer, ktime_set(0, 125000000), HRTIMER_MODE_REL);		// hun - HRTIMER_MODE_REL = 0x1
+
+			input_report_abs(ps_als->input_dev_als, ABS_MISC, 30001);
+			input_sync(ps_als->input_dev_als);
+			
 			if (result != 0) {
 				PINFO("can't start timer\n");
 				goto unlock;
@@ -480,13 +502,12 @@ static ssize_t rpr0521_store_enable(struct device *dev, struct device_attribute 
 	}
 	else{
 		if(is_proximity) {
+			ps_als_ginfo->ps_first_reported = false;
 			ps_als_ginfo->enable = PS_ALS_DISABLE;
-			input_report_abs(ps_als_ginfo->input_dev, ABS_DISTANCE, -1); // change unknown state.
 		}
 		else if(is_light) {
 			ps_als_ginfo->als_enable = PS_ALS_DISABLE;
 			result = hrtimer_cancel(&ps_als_ginfo->timer);
-			input_report_abs(ps_als_ginfo->input_dev_als, ABS_MISC, -1); // change unknown state.
 			PINFO("[RPR0521]hrtimer_cancel() result : %d \n", result);
 		}
 	}
@@ -725,8 +746,8 @@ static ssize_t rpr0521_show_poll_delay(struct device *dev,
 static ssize_t rpr0521_store_poll_delay(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
-	unsigned long nSecval = simple_strtoul(buf, NULL, 10);
-  unsigned long val = nSecval / 1000000; //nSec to mSec
+    unsigned long nSecval = simple_strtoul(buf, NULL, 10);
+    unsigned long val = nSecval / 1000000; //nSec to mSec
 
 	if (val >= (PS_ALS_SET_MIN_DELAY_TIME)) {
 	  ps_als_ginfo->delay_time = val;
@@ -1236,8 +1257,6 @@ static int ps_als_driver_read_alsps_control(unsigned char* data, struct i2c_clie
  *****************************************************************************/
 static int update_ps_value(unsigned short new_ps_data)
 {
-	ps_als_ginfo->ps_data = new_ps_data;
-
 	if(new_ps_data > ps_als_ginfo->adjusted_psth_upper)	// current state is near
 	{
 		ps_als_ginfo->ps_value = true;
@@ -1264,7 +1283,21 @@ static int update_ps_value(unsigned short new_ps_data)
 	else
 	{
 		PINFO("proximity state is not changed. pdata(%d)", new_ps_data);
+		if (ps_als_ginfo->ps_first_reported == false)
+		{
+			PINFO("pdata(%d) first ps event report far", new_ps_data);
+			ps_als_ginfo->ps_value = false;
+			ps_als_driver_write_ps_th_h(ps_als_ginfo->adjusted_psth_upper, ps_als_ginfo->client);
+			ps_als_driver_write_ps_th_l(PS_THRESHOLD_MIN, ps_als_ginfo->client);
+		}
 	}
+
+	if (ps_als_ginfo->ps_first_reported == false)
+	{
+		ps_als_ginfo->ps_first_reported = true;
+	}
+
+	ps_als_ginfo->ps_data = new_ps_data;
 	return 0;
 }
 
@@ -1279,18 +1312,22 @@ static int update_als_value(unsigned short new_als_data0, unsigned short new_als
 	ps_als_ginfo->als_data1 = new_als_data1;
 
 #ifdef RPR0521_PM_SUSPEND_RESUME
-	if(new_als_data0 > ps_als_ginfo->config.init_data.alsth_upper)	// current state is bright
-	{
+	if(new_als_data0 > ps_als_ginfo->config.init_data.alsth_upper) {	// current state is bright
+		if (atomic_read(&als_log) == 0) {
 		PINFO("als_data0(%d) > alsth_upper(%d), als state is changed dark to bright",
 				new_als_data0, ps_als_ginfo->config.init_data.alsth_upper);
+		atomic_set(&als_log, 1);
+		}
 		ps_als_driver_write_als_th_up(ALS_THRESHOLD_MAX, ps_als_ginfo->client);
 		ps_als_driver_write_als_th_low(ps_als_ginfo->config.init_data.alsth_low, ps_als_ginfo->client);
 
 	}
-	else if(new_als_data0 <= ps_als_ginfo->config.init_data.alsth_upper)	// current state is dark
-	{
-		PINFO("als_data0(%d) < alsth_low(%d), als state is changed bright to dark",
-				new_als_data0, ps_als_ginfo->config.init_data.alsth_low);
+	else if(new_als_data0 <= ps_als_ginfo->config.init_data.alsth_upper) {	// current state is dark
+		if (atomic_read(&als_log) == 1) {
+		PINFO("als_data0(%d) <= alsth_upper(%d), als state is changed bright to dark",
+				new_als_data0, ps_als_ginfo->config.init_data.alsth_upper);
+		atomic_set(&als_log, 0);
+		}
 		ps_als_driver_write_als_th_up(ps_als_ginfo->config.init_data.alsth_upper, ps_als_ginfo->client);
 		ps_als_driver_write_als_th_low(ALS_THRESHOLD_MIN, ps_als_ginfo->client);
 	}
@@ -1303,6 +1340,7 @@ static int update_als_value(unsigned short new_als_data0, unsigned short new_als
 }
 
 
+
 /******************************************************************************
  * NAME       : ps_als_work_func
  * FUNCTION   : periodically reads the data from sensor(thread of work)
@@ -1311,9 +1349,6 @@ static int update_als_value(unsigned short new_als_data0, unsigned short new_als
 static void ps_als_work_func(struct work_struct *work)
 {
     int           result;
-    long          get_timer;
-    long          wait_sec;
-    unsigned long wait_nsec;
     unsigned char read_intr;
     PWR_ST        pwr_st;
     READ_DATA_BUF read_data_buf;
@@ -1321,9 +1356,9 @@ static void ps_als_work_func(struct work_struct *work)
     DEVICE_VAL    dev_val;
     GENREAD_ARG   gene_data;
 
-	mutex_lock(&ps_als_ginfo->work_lock);
+    mutex_lock(&ps_als_ginfo->work_lock);
 
-	read_data_buf.ps_data   = 0;
+    read_data_buf.ps_data   = 0;
     read_data_buf.als_data0 = 0;
     read_data_buf.als_data1 = 0;
     ps_als = container_of(work, PS_ALS_DATA, work);
@@ -1364,33 +1399,23 @@ static void ps_als_work_func(struct work_struct *work)
     }
 
     if (pwr_st.als_state == CTL_STANDALONE && ps_als_ginfo->is_timer) {
-		update_als_value(read_data_buf.als_data0, read_data_buf.als_data1);
-		input_report_abs(ps_als->input_dev_als, ABS_MISC, lux_calculation());
-		//input_report_abs(ps_als->input_dev_als, ABS_MISC, ps_als_ginfo->als_data0);
-		input_sync(ps_als->input_dev_als);
-		ps_als_ginfo->is_timer = false;
-
-		/* the setting value from application */
-		get_timer = ps_als->delay_time;
-		/* 125ms(8Hz) at least */
-		wait_sec  = (get_timer / SM_TIME_UNIT);
-		wait_nsec = ((get_timer - (wait_sec * SM_TIME_UNIT)) * MN_TIME_UNIT);
-		result = hrtimer_start(&ps_als->timer, ktime_set(wait_sec, wait_nsec), HRTIMER_MODE_REL);
-		if (result != 0) {
-			PINFO("can't start timer\n");
-			goto unlock;
-		}
-	}
-	if (pwr_st.ps_state == CTL_STANDALONE && ps_als_ginfo->is_interrupt) {
-		update_ps_value(read_data_buf.ps_data);
-		input_report_abs(ps_als->input_dev, ABS_DISTANCE, (ps_als_ginfo->ps_value==true)? 0:1);
-		input_sync(ps_als->input_dev);
-		ps_als_ginfo->is_interrupt = false;
-
-        //enable_irq(ps_als->client->irq);
-	}
+	update_als_value(read_data_buf.als_data0, read_data_buf.als_data1);
+	input_report_abs(ps_als->input_dev_als, ABS_MISC, lux_calculation());
+	//input_report_abs(ps_als->input_dev_als, ABS_MISC, ps_als_ginfo->als_data0);
+	input_sync(ps_als->input_dev_als);
+	ps_als_ginfo->is_timer = false;
+    }
+    if (pwr_st.ps_state == CTL_STANDALONE && ps_als_ginfo->is_interrupt) {
+	update_ps_value(read_data_buf.ps_data);
+	input_report_abs(ps_als->input_dev, ABS_DISTANCE, (ps_als_ginfo->ps_value==true)? 0:1);
+	input_sync(ps_als->input_dev);
+    }
 
 unlock :
+  if(ps_als_ginfo->is_interrupt){
+  ps_als_ginfo->is_interrupt = false;
+  enable_irq(ps_als->client->irq); //Consecutive irq control
+  }
 	mutex_unlock(&ps_als_ginfo->work_lock);
 	return ;
 }
@@ -1404,15 +1429,24 @@ static enum hrtimer_restart ps_als_timer_func(struct hrtimer *timer)
 {
     PS_ALS_DATA *ps_als;
     int         result;
+    long          get_timer;
+    long          wait_sec;
+    unsigned long wait_nsec;
 
-	ps_als_ginfo->is_timer = true;
+    ps_als_ginfo->is_timer = true;
     ps_als = container_of(timer, PS_ALS_DATA, timer);
     result = queue_work(rohm_workqueue, &ps_als->work);
     if (result == 0) {
         PINFO("can't register que.\n");
         PINFO("result = 0x%x\n", result);
     }
-
+    get_timer = ps_als->delay_time;
+    wait_sec  = (get_timer / SM_TIME_UNIT);
+    wait_nsec = ((get_timer - (wait_sec * SM_TIME_UNIT)) * MN_TIME_UNIT);
+    result = hrtimer_start(&ps_als->timer, ktime_set(wait_sec, wait_nsec), HRTIMER_MODE_REL);
+    if (result != 0) {
+	PINFO("can't start timer\n");
+    }
     return (HRTIMER_NORESTART);
 }
 
@@ -1426,14 +1460,17 @@ static irqreturn_t ps_als_irq_handler(int irq, void *dev_id)
     PS_ALS_DATA *ps_als;
     int         result;
 
-  PINFO("[RPR0521]ps_als_irq_handler() Enter\n");
-	ps_als_ginfo->is_interrupt = true;
+    PINFO("[RPR0521]ps_als_irq_handler() Enter\n");
+    /* for proximity interrupt */
+    ps_als_ginfo->is_interrupt = true;
+    /* for light interrupt */
+    ps_als_ginfo->is_timer = true;
     ps_als = dev_id;
     if (wake_lock_active(&ps_als->ps_wlock))
         wake_unlock(&ps_als->ps_wlock);
     wake_lock_timeout(&ps_als->ps_wlock, 1 * HZ);
-    //disable_irq_nosync(ps_als->client->irq);
-    result = queue_work(rohm_workqueue, &ps_als->work);
+    disable_irq_nosync(ps_als->client->irq); //Consecutive irq control
+    result = queue_work(rohm_int_workqueue, &ps_als->work);
     if (result == 0) {
         PINFO("can't register que.\n");
     }
@@ -1857,47 +1894,26 @@ static int ps_als_ioctl_power_on_off(PS_ALS_DATA *ps_als, POWERON_ARG *power_dat
 static int ps_als_suspend(struct device *dev)
 {
     PS_ALS_DATA *ps_als;
-    PWR_ST pwr_st;
     int result;
 
     struct i2c_client *client = container_of(dev, struct i2c_client, dev);
     PINFO("[RPR0521]Enter Suspend!! \n");
     ps_als = i2c_get_clientdata(client);
 
-    result = ps_als_driver_read_power_state(&pwr_st, ps_als->client);
-    PINFO("[RPR0521]Enter Suspend ps_als_driver_read_power_state : %d !! \n", result);
+    ps_als_ginfo->is_timer = true;
 
-    if (pwr_st.als_state == CTL_STANDALONE){
-	result = ps_als_driver_write_interrupt_mode((unsigned char) MODE_BOTH, client);
-	PINFO("[RPR0521]Enter Suspend write_interrupt_mode result : %d!! \n", result);
-	ps_als_ginfo->is_timer = true;
-
-	result = hrtimer_cancel(&ps_als->timer);
-	PINFO("[RPR0521]hrtimer_cancel() result : %d \n", result);
-	result = cancel_work_sync(&ps_als_ginfo->work);
-	PINFO("[RPR0521]cancel_work_sync() result : %d \n", result);
-    }
+    result = hrtimer_cancel(&ps_als->timer);
+    PINFO("[RPR0521]hrtimer_cancel() result : %d \n", result);
+    result = cancel_work_sync(&ps_als_ginfo->work);
+    PINFO("[RPR0521]cancel_work_sync() result : %d \n", result);
     return 0;
 }
 
 static int ps_als_resume(struct device *dev)
 {
-    PS_ALS_DATA   *ps_als;
-    PWR_ST	pwr_st;
-    int 		  result;
-
-    struct i2c_client *client = container_of(dev, struct i2c_client, dev);
-    ps_als = i2c_get_clientdata(client);
-    PINFO("[RPR0521]Enter Resume!! \n");
-
-    result = ps_als_driver_read_power_state(&pwr_st, ps_als->client);
-    PINFO("[RPR0521]Enter Resume ps_als_driver_read_power_state result : %d!! \n", result);
-
-    if (pwr_st.als_state == CTL_STANDALONE){
-    result = ps_als_driver_write_interrupt_mode((unsigned char) MODE_PROXIMITY, client);
-    PINFO("[RPR0521]Enter Resume write_interrupt_mode result : %d!! \n", result);
-    }
-    return 0;
+   /* timer restart work_func() */
+   PINFO("[RPR0521]Enter Resume!! \n");
+   return 0;
 }
 
 #endif
@@ -1929,6 +1945,7 @@ static int ps_als_probe(struct i2c_client *client, const struct i2c_device_id *i
     }
     wake_lock_init(&ps_als->ps_wlock, WAKE_LOCK_SUSPEND, "proxi_wakelock");
     INIT_WORK(&ps_als->work, ps_als_work_func);
+    INIT_WORK(&ps_als->int_work, ps_als_work_func);
     ps_als->client = client;
     i2c_set_clientdata(client, ps_als);
 
@@ -2076,6 +2093,7 @@ static int ps_als_probe(struct i2c_client *client, const struct i2c_device_id *i
 	ps_als->ps_value = false;
 	ps_als->is_interrupt = false;
 	ps_als->is_timer = false;
+	ps_als->ps_first_reported = false;
 	ps_als_ginfo = ps_als;
 
 	mutex_init(&ps_als_ginfo->enable_lock);
@@ -2156,6 +2174,10 @@ static int __devinit ps_als_init(void)
     if (!rohm_workqueue) {
         return (-ENOMEM);
     }
+    rohm_int_workqueue = create_singlethread_workqueue("rohm_int_workqueue");
+    if (!rohm_int_workqueue) {
+	return (-ENOMEM);
+    }
 
     return (i2c_add_driver(&rpr0521_driver));
 }
@@ -2170,6 +2192,10 @@ static void __exit ps_als_exit(void)
     i2c_del_driver(&rpr0521_driver);
     if (rohm_workqueue) {
         destroy_workqueue(rohm_workqueue);
+    }
+
+    if (rohm_int_workqueue) {
+	destroy_workqueue(rohm_int_workqueue);
     }
 
     return;

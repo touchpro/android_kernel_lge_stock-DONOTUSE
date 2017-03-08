@@ -55,6 +55,10 @@ ifeq ($(CONFIG_LGE_DISPLAY_COMMON), y)
 obj-$(CONFIG_FB_MSM_MDSS) += lge-display-mdss.o
 endif
 
+ifeq ($(CONFIG_LGE_DISPLAY_CODE_REFACTORING),y)
+lge-display-mdss-objs += lge/panel/oem_mdss_dsi_common.o lge/panel/oem_mdss_dsi.o lge/panel/oem_mdss_dsi_panel.o lge/panel/oem_mdss_dsi_host.o lge/panel/oem_mdss_mdp_overlay.o lge/panel/oem_mdss_debug_xlog.o
+endif
+
 ifeq ($(CONFIG_LGE_DISPLAY_TUNING),y)
 lge-display-mdss-objs += lge/common/lge_lcd_misc_ctrl.o
 endif

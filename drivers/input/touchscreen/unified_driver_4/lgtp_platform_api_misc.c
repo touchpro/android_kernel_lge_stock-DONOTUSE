@@ -53,6 +53,11 @@ atomic_t	touch_irq_mask;
 ****************************************************************************/
 extern int touch_module;
 
+#if defined (CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+extern int get_display_id(void);
+int ph1_tddi_id;
+#endif
+
 
 /****************************************************************************
 * Local Function Prototypes
@@ -112,6 +117,11 @@ int TouchGetModuleIndex(void)
     #if defined(TOUCH_MODEL_LION_3G)
     index = touch_module;
     #endif
+	#if defined (CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+	index = get_display_id();	//read touch maker ID ( 0 : mit300, 1 : td4100)
+	TOUCH_LOG("Display Module Get. Module index = %d\n", get_display_id());
+	ph1_tddi_id = index;
+	#endif
 
     TOUCH_LOG("Touch Module Get. Module index = %d\n",index);
 	return index;
@@ -284,14 +294,14 @@ void TouchToggleGpioInterrupt(void)
 }
 #endif
 
-int TouchRegisterIrq(TouchDriverData *pDriverData, irq_handler_t irqHandler)
+int TouchRegisterIrq(TouchDriverData *pDriverData, irq_handler_t irqHandler, irq_handler_t threaded_irqHandler)
 {
 	TOUCH_FUNC();
 
 	#if defined(TOUCH_PLATFORM_QCT)
 	{
 		int ret = 0;
-		ret = request_irq(pDriverData->client->irq, irqHandler, TOUCH_IRQ_FLAGS, pDriverData->client->name, pDriverData);
+		ret = request_threaded_irq(pDriverData->client->irq, irqHandler, threaded_irqHandler, TOUCH_IRQ_FLAGS, pDriverData->client->name, pDriverData);
 		if( ret < 0 ) {
 			TOUCH_ERR("failed at request_irq() ( error = %d )\n", ret );
 			return TOUCH_FAIL;
@@ -319,8 +329,8 @@ void TouchEnableIrq(void)
 
 	#if defined(TOUCH_PLATFORM_QCT)
 
-	if (atomic_read(&touch_irq_mask) != 1) {
-		atomic_set(&touch_irq_mask, 1);
+	if (atomic_read(&touch_irq_mask) != 0) {
+		atomic_set(&touch_irq_mask, 0);
 		enable_irq(nIrq_num);
 	}
 
@@ -339,9 +349,9 @@ void TouchDisableIrq(void)
 {
 	#if defined(TOUCH_PLATFORM_QCT)
 
-	if (atomic_read(&touch_irq_mask) == 1) {
-		atomic_set(&touch_irq_mask, 0);
-		disable_irq(nIrq_num);
+	if (atomic_read(&touch_irq_mask) == 0) {
+		atomic_set(&touch_irq_mask, 1);
+		disable_irq_nosync(nIrq_num);
 	}
 
 	#elif defined(TOUCH_PLATFORM_MTK)

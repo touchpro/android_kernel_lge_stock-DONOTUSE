@@ -2,11 +2,11 @@
  * fs/sdcardfs/file.c
  *
  * Copyright (c) 2013 Samsung Electronics Co. Ltd
- *   Authors: Daeho Jeong, Woojoong Lee, Seunghwan Hyun, 
+ *   Authors: Daeho Jeong, Woojoong Lee, Seunghwan Hyun,
  *               Sunghwan Yun, Sungjong Seo
- *                      
+ *
  * This program has been developed as a stackable file system based on
- * the WrapFS which written by 
+ * the WrapFS which written by
  *
  * Copyright (c) 1998-2011 Erez Zadok
  * Copyright (c) 2009     Shrikar Archak
@@ -143,6 +143,7 @@ static int sdcardfs_mmap(struct file *file, struct vm_area_struct *vma)
 	bool willwrite;
 	struct file *lower_file;
 	const struct vm_operations_struct *saved_vm_ops = NULL;
+
 	/* this might be deferred to mmap's writepage */
 	willwrite = ((vma->vm_flags | VM_SHARED | VM_WRITE) == vma->vm_flags);
 
@@ -176,12 +177,6 @@ static int sdcardfs_mmap(struct file *file, struct vm_area_struct *vma)
 			goto out;
 		}
 		saved_vm_ops = vma->vm_ops; /* save: came from lower ->mmap */
-		err = do_munmap(current->mm, vma->vm_start,
-				vma->vm_end - vma->vm_start);
-		if (err) {
-			printk(KERN_ERR "sdcardfs: do_munmap failed %d\n", err);
-			goto out;
-		}
 	}
 
 	/*
@@ -206,22 +201,18 @@ static int sdcardfs_open(struct inode *inode, struct file *file)
 	struct path lower_path;
 	struct dentry *dentry = file->f_path.dentry;
 	struct dentry *parent = dget_parent(dentry);
-	struct sdcardfs_sb_info *sbi = SDCARDFS_SB(dentry->d_sb); 
+	struct sdcardfs_sb_info *sbi = SDCARDFS_SB(dentry->d_sb);
 	const struct cred *saved_cred = NULL;
-	int has_rw;
 
 	/* don't open unhashed/deleted files */
 	if (d_unhashed(dentry)) {
 		err = -ENOENT;
 		goto out_err;
 	}
-	
-	has_rw = get_caller_has_rw_locked(sbi->pkgl_id, sbi->options.derive);
 
-	if(!check_caller_access_to_name(parent->d_inode, dentry->d_name.name, 
-				sbi->options.derive, 
-				open_flags_to_access_mode(file->f_flags), has_rw)) {
-		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n" 
+	if(!check_caller_access_to_name(parent->d_inode, dentry->d_name.name,
+                open_flags_to_access_mode(file->f_flags))) {
+		printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n"
                          "	dentry: %s, task:%s\n",
 						 __func__, dentry->d_name.name, current->comm);
 		err = -EACCES;
@@ -240,8 +231,9 @@ static int sdcardfs_open(struct inode *inode, struct file *file)
 	}
 
 	/* open lower object and link sdcardfs's file struct to lower's */
-	sdcardfs_copy_lower_path(file->f_path.dentry, &lower_path);
+	sdcardfs_get_lower_path(file->f_path.dentry, &lower_path);
 	lower_file = dentry_open(&lower_path, file->f_flags, current_cred());
+	path_put(&lower_path);
 	if (IS_ERR(lower_file)) {
 		err = PTR_ERR(lower_file);
 		lower_file = sdcardfs_lower_file(file);
@@ -258,7 +250,7 @@ static int sdcardfs_open(struct inode *inode, struct file *file)
 	else {
 		mutex_lock(&inode->i_mutex);
 		sdcardfs_copy_inode_attr(inode, sdcardfs_lower_inode(inode));
-		fix_derived_permission(inode);
+        fix_derived_permission(inode, sbi->options.sdfs_mask);
 		mutex_unlock(&inode->i_mutex);
 	}
 

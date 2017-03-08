@@ -632,8 +632,10 @@ limProcessEXTScanRealTimeData(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo)
                                     pProbeResponse->BeaconInterval.interval;
         tEXTScanFullScanResult.ap.capability =
                             *(((tANI_U16 *)&pProbeResponse->Capabilities));
-
-        vos_mem_free(pBeacon);
+// QCT_CASE_START #02332168
+//        vos_mem_free(pBeacon);
+        vos_mem_free(pProbeResponse);
+// QCT_CASE_END #02332168
     }
     else
     {

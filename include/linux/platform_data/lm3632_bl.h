@@ -28,7 +28,12 @@ struct backlight_platform_data {
 	int default_brightness;
 	int factory_brightness;
 	int blmap_size;
+#if defined (CONFIG_MACH_MSM8916_K5)
+	u16 *blmap;
+#else
 	char *blmap;
+#endif
+
 };
 
 struct lm3632_device {
@@ -46,7 +51,12 @@ struct lm3632_device {
 	int factory_brightness;
 	struct mutex bl_mutex;
 	int blmap_size;
+#if defined (CONFIG_MACH_MSM8916_K5)
+	u16 *blmap;
+#else
 	char *blmap;
+#endif
+
 };
 
 #endif /* __LINUX_LM3632_H */

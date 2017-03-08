@@ -61,8 +61,8 @@
 #define SENSOR_NAME			"bma2x2"
 #define ABSMIN				-512
 #define ABSMAX				512
-#define SLOPE_THRESHOLD_VALUE		32
-#define SLOPE_DURATION_VALUE		1
+#define SLOPE_THRESHOLD_VALUE		28
+#define SLOPE_DURATION_VALUE		2
 #define INTERRUPT_LATCH_MODE		13
 #define INTERRUPT_ENABLE		1
 #define INTERRUPT_DISABLE		0
@@ -1364,6 +1364,9 @@ struct bma2x2_data {
 	unsigned char bandwidth;
 	unsigned char range;
 	unsigned char calib_status;
+#ifdef BMA2X2_ENABLE_INT1
+    atomic_t slop_detect_enable;
+#endif
 };
 
 
@@ -1385,6 +1388,10 @@ static void bma2x2_late_resume(struct early_suspend *h);
 static struct i2c_client *bma2x2_i2c_client; /* global i2c_client to support ioctl */
 static void bma2x2_bakup_hw_cfg(struct bma2x2_data *client_data);
 static void bma2x2_restore_hw_cfg(struct bma2x2_data *client_data);
+
+#ifdef BMA2X2_ENABLE_INT1
+static void bma2x2_set_slop_enable(struct device *dev, int enable);
+#endif
 
 static void bma2x2_remap_sensor_data(struct bma2x2acc *val,
 		struct bma2x2_data *client_data)
@@ -1915,6 +1922,7 @@ static int bma2x2_get_orient_flat_status(struct i2c_client *client, unsigned
 	return comres;
 }
 
+/* build error fix
 static int bma2x2_set_dt_fileter(struct i2c_client *client, unsigned char value)
 {
 	int comres = 0;
@@ -1928,6 +1936,7 @@ static int bma2x2_set_dt_fileter(struct i2c_client *client, unsigned char value)
 
 	return comres;
 }
+*/
 #endif /* defined(BMA2X2_ENABLE_INT1)||defined(BMA2X2_ENABLE_INT2) */
 
 static int bma2x2_set_slope_source(struct i2c_client *client, unsigned char value)
@@ -4961,6 +4970,15 @@ static void bma2x2_acc_disable(struct device *dev, bool backup)
 		mutex_unlock(&bma2x2->enable_mutex);
 		return;
 	}
+
+#ifdef BMA2X2_ENABLE_INT1
+    if(atomic_read(&bma2x2->slop_detect_enable))
+    {
+        SENSOR_LOG("step sensor is enabled status, sensor going not disabled");
+        mutex_unlock(&bma2x2->enable_mutex);
+        return;
+    }
+#endif
 	
 	if (backup)
 		bma2x2_bakup_hw_cfg(bma2x2);
@@ -4999,6 +5017,79 @@ static void bma2x2_set_enable(struct device *dev, int enable, bool pm)
 	}
 }
 
+#ifdef BMA2X2_ENABLE_INT1
+static void bma2x2_set_slop_enable(struct device *dev, int enable)
+{
+    int ret = 0;
+    struct bma2x2_data *bma2x2 = dev_get_drvdata(dev);
+    unsigned char data1 = 0;
+
+    mutex_lock(&bma2x2->enable_mutex);
+
+    if (enable) {	//enable
+        SENSOR_LOG("slop enable start");
+		if (!atomic_read(&bma2x2->slop_detect_enable))
+		{
+	        atomic_set(&bma2x2->slop_detect_enable, 1);
+
+	        if (!atomic_read(&bma2x2->enable)) // if accel already enable, do not need enable
+	        {
+	            SENSOR_LOG("slop enable : Accel enable");
+	            if (sensor_platform_hw_power_on(true) < 0)
+	                SENSOR_LOG("Power On Fail (slop detector --> Accel)");
+
+	            bma2x2_set_mode(bma2x2->bma2x2_client,BMA2X2_MODE_NORMAL);
+
+	            schedule_delayed_work(&bma2x2->work, msecs_to_jiffies(atomic_read(&bma2x2->delay)));
+	            bma2x2_int_init(bma2x2->bma2x2_client); /* init interrupt */
+	            enable_irq_wake(bma2x2->IRQ);
+	        }
+	        //set slop irq register
+	        SENSOR_LOG("slop irq set register");
+	        data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_X_INT, 1);
+	        ret= bma2x2_smbus_write_byte(bma2x2->bma2x2_client, BMA2X2_INT_ENABLE1_REG,	&data1);
+	        data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_Y_INT, 1);
+	        ret= bma2x2_smbus_write_byte(bma2x2->bma2x2_client, BMA2X2_INT_ENABLE1_REG, &data1);
+	        data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_Z_INT, 1);
+	        ret= bma2x2_smbus_write_byte(bma2x2->bma2x2_client, BMA2X2_INT_ENABLE1_REG, &data1);
+
+	        bma2x2_set_bandwidth(bma2x2->bma2x2_client, BMA2X2_BW_15_63HZ);
+	        bma2x2_set_slope_duration(bma2x2->bma2x2_client, (unsigned char)SLOPE_DURATION_VALUE);
+	        bma2x2_set_slope_threshold(bma2x2->bma2x2_client, (unsigned	char)SLOPE_THRESHOLD_VALUE);
+		}
+    }
+    else // disable
+    {
+        if (atomic_read(&bma2x2->slop_detect_enable))
+		{
+	        SENSOR_LOG("slop irq disable");
+	        atomic_set(&bma2x2->slop_detect_enable, 0);
+	        data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_X_INT, 0);
+	        ret= bma2x2_smbus_write_byte(bma2x2->bma2x2_client, BMA2X2_INT_ENABLE1_REG, &data1);
+	        data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_Y_INT, 0);
+	        ret= bma2x2_smbus_write_byte(bma2x2->bma2x2_client, BMA2X2_INT_ENABLE1_REG, &data1);
+	        data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_Z_INT, 0);
+	        ret= bma2x2_smbus_write_byte(bma2x2->bma2x2_client, BMA2X2_INT_ENABLE1_REG, &data1);
+
+	        if (!atomic_read(&bma2x2->enable)) // if accel enable, do not disable sensor.
+	        {
+	            SENSOR_LOG("slop irq disable register");
+
+	            bma2x2_set_mode(bma2x2->bma2x2_client, BMA2X2_MODE_DEEP_SUSPEND);
+	            cancel_delayed_work_sync(&bma2x2->work);
+	            cancel_work_sync(&bma2x2->irq_work);
+	            flush_work(&bma2x2->irq_work);
+	            disable_irq_wake(bma2x2->IRQ);
+
+	            if (sensor_platform_hw_power_on(false) < 0)
+	                SENSOR_LOG("Power Off Fail");
+	        }
+		}
+    }
+	mutex_unlock(&bma2x2->enable_mutex);
+}
+#endif
+
 
 static ssize_t bma2x2_enable_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -5024,6 +5115,33 @@ static ssize_t bma2x2_enable_store(struct device *dev,
 
 	return count;
 }
+
+#ifdef BMA2X2_ENABLE_INT1
+static ssize_t bma2x2_slop_enable_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct bma2x2_data *bma2x2 = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", atomic_read(&bma2x2->slop_detect_enable));
+}
+
+static ssize_t bma2x2_slop_enable_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	unsigned long data;
+	int error;
+
+	error = kstrtoul(buf, 10, &data);
+	if (error)
+		return error;
+
+	if ((data == 0) || (data == 1))
+		bma2x2_set_slop_enable(dev, data);
+
+	return count;
+}
+#endif
 
 
 static ssize_t bma2x2_fast_calibration_x_show(struct device *dev,
@@ -6099,7 +6217,7 @@ static ssize_t bma2x2_fast_calibration_store(struct device *dev,
 	bma2x2_read_accel_xyz(bma2x2->bma2x2_client, bma2x2->sensor_type, &acc_cal_pre);
 
 	/* Device is upside down */
-	if ( (data == 1 && acc_cal_pre.z >= 0) || (data == 2 && acc_cal_pre.z <= 0) ) {
+	if ((data == 1 && acc_cal_pre.z <= 0) || (data == 2 && acc_cal_pre.z <= 0)) {
 		SENSOR_ERR("device is upside down. data : %ld, target : %d", data, acc_cal_pre.z);
 		return -EINVAL;
 	}
@@ -6349,6 +6467,12 @@ static DEVICE_ATTR(delay, S_IRUGO|S_IWUSR|S_IWGRP,
 		bma2x2_delay_show, bma2x2_delay_store);
 static DEVICE_ATTR(enable, S_IRUGO|S_IWUSR|S_IWGRP,
 		bma2x2_enable_show, bma2x2_enable_store);
+
+#ifdef BMA2X2_ENABLE_INT1
+static DEVICE_ATTR(enable_slop, S_IRUGO|S_IWUSR|S_IWGRP,
+		bma2x2_slop_enable_show, bma2x2_slop_enable_store);
+#endif
+
 static DEVICE_ATTR(SleepDur, S_IRUGO|S_IWUSR|S_IWGRP,
 		bma2x2_SleepDur_show, bma2x2_SleepDur_store);
 static DEVICE_ATTR(fast_calibration_x, S_IRUGO|S_IWUSR|S_IWGRP,
@@ -6472,6 +6596,9 @@ static struct attribute *bma2x2_attributes[] = {
 	&dev_attr_value.attr,
 	&dev_attr_delay.attr,
 	&dev_attr_enable.attr,
+#ifdef BMA2X2_ENABLE_INT1
+	&dev_attr_enable_slop.attr,
+#endif
 	&dev_attr_SleepDur.attr,
 	&dev_attr_reg.attr,
 	&dev_attr_fast_calibration_x.attr,
@@ -6898,7 +7025,7 @@ static int sensor_regulator_power_on(struct bma2x2_data *data, bool on)
 		}
 	}
 
-	msleep(130);
+	usleep_range(20000, 21000);
 	SENSOR_LOG("power on");
 	return 0;
 
@@ -7154,6 +7281,7 @@ static int bma2x2_probe(struct i2c_client *client,
 	mutex_init(&data->value_mutex);
 	mutex_init(&data->mode_mutex);
 	mutex_init(&data->enable_mutex);
+
 	bma2x2_set_bandwidth(client, BMA2X2_BW_SET);
 	bma2x2_set_range(client, BMA2X2_RANGE_SET);
 #ifdef BMA2X2_ACCEL_CALIBRATION
@@ -7165,6 +7293,10 @@ static int bma2x2_probe(struct i2c_client *client,
 	INIT_DELAYED_WORK(&data->work, bma2x2_work_func);
 	atomic_set(&data->delay, BMA2X2_MAX_DELAY);
 	atomic_set(&data->enable, 0);
+
+#ifdef BMA2X2_ENABLE_INT1
+	atomic_set(&data->slop_detect_enable, 0);
+#endif
 
 	dev = input_allocate_device();
 	if (!dev){
@@ -7192,7 +7324,7 @@ static int bma2x2_probe(struct i2c_client *client,
 	input_set_capability(dev, EV_REL, REL_X);
 	input_set_capability(dev, EV_REL, REL_Y);
 	input_set_capability(dev, EV_REL, REL_Z);
-
+    input_set_capability(dev, EV_REL, SLOP_INTERRUPT);
 	input_set_drvdata(dev, data);
 	err = input_register_device(dev);
 	if (err < 0) {

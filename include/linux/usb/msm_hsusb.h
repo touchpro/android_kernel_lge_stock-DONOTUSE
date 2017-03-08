@@ -284,7 +284,7 @@ enum usb_ctrl {
  */
 struct msm_otg_platform_data {
 	int *phy_init_seq;
-#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_USB_TYPE_A)
 	int *phy_init_host_seq;
 #endif
 	int (*vbus_power)(bool on);
@@ -315,7 +315,7 @@ struct msm_otg_platform_data {
 	bool enable_ahb2ahb_bypass;
 	bool disable_retention_with_vdd_min;
 	int usb_id_gpio;
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 	int hub_en_gpio;
 	int hub_res_gpio;
 #endif
@@ -491,10 +491,8 @@ struct msm_otg {
 	struct delayed_work lge_chg_work;
 	int chg_det_cnt;
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	int dcd_timeout_cnt;
-#endif
-#if defined(CONFIG_LGE_USB_CHARGING_SPEC_VZW)
 	bool dcd_timeout;
 #endif
 	struct delayed_work id_status_work;

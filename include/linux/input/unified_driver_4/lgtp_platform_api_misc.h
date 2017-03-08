@@ -50,7 +50,7 @@
 int TouchGetModuleIndex(void);
 int TouchInitializeGpio(void);
 void TouchSetGpioReset(int isHigh);
-int TouchRegisterIrq(TouchDriverData *pDriverData, irq_handler_t irqHandler);
+int TouchRegisterIrq(TouchDriverData *pDriverData, irq_handler_t irqHandler, irq_handler_t threaded_irqHandler);
 void TouchEnableIrq(void);
 void TouchDisableIrq(void);
 int TouchReadGpioInterrupt(void);

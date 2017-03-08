@@ -17,7 +17,7 @@ DEFINE_MSM_MUTEX(hi553_ff_mut);
 
 static struct msm_sensor_ctrl_t hi553_ff_s_ctrl;
 
-#if defined(CONFIG_LGE_P1B_CAMERA)
+#if defined(CONFIG_LGE_P1B_CAMERA) || defined(CONFIG_LGE_K5_CAMERA)
 static struct msm_sensor_power_setting hi553_ff_power_setting[] = {
 	{
 		.seq_type = SENSOR_GPIO,

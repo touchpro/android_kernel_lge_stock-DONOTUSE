@@ -56,8 +56,29 @@
 
 #define NONE_PANEL "none"
 
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+#define LG4895_REV0 0
+#define LG4895_REV1 1
+#define LG4895_REV2 2
+#define LG4895_REV3 3
+#else
+#define DB7400_CUT5 5
+#define DB7400_CUT6 6
+#define DB7400_CUT7 7
+#endif
+#endif
+
 #if defined (CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
 #define LGD_INCELL_PHASE3_APPLY_POWER_SEQUENCE 1
+#endif
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+enum {
+	SWIPE_DONE = 0,
+	DO_SWIPE,
+	ABNORMAL_SWIPE,
+};
 #endif
 
 enum {		/* mipi dsi panel */
@@ -321,6 +342,7 @@ enum {
 struct mdss_dsi_ctrl_pdata {
 	int ndx;	/* panel_num */
 	int (*on) (struct mdss_panel_data *pdata);
+	int (*post_panel_on)(struct mdss_panel_data *pdata);
 	int (*off) (struct mdss_panel_data *pdata);
 	int (*low_power_config) (struct mdss_panel_data *pdata, int enable);
 	int (*set_col_page_addr) (struct mdss_panel_data *pdata);
@@ -367,19 +389,21 @@ struct mdss_dsi_ctrl_pdata {
 	int disp_dsv_en_gpio;
 #endif
 #if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
-#if defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
-	int disp_lcd_ldo_3v0_gpio;
 	int disp_lcd_ldo_1v8_gpio;
 	int disp_dsv_p_gpio;
 	int disp_dsv_n_gpio;
-#else
+#endif
+
+#if defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+	int disp_lcd_ldo_1v8_gpio;
 	int disp_dsv_p_gpio;
 	int disp_dsv_n_gpio;
+	int t_rst_gpio;
 #endif
+
 #if defined (CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
 	int disp_dsv_p_gpio;
 	int disp_dsv_n_gpio;
-#endif
 #endif
 #if defined (CONFIG_LGD_LD083_VIDEO_WUXGA_PT_PANEL)
 	int disp_lcd_ldo_gpio;
@@ -424,6 +448,10 @@ struct mdss_dsi_ctrl_pdata {
 	int new_fps;
 	int pwm_enabled;
 	int clk_lane_cnt;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	struct notifier_block   block_notif;
+	struct notifier_block   atomic_notif;
+#endif
 	bool panel_bias_vreg;
 	bool dsi_irq_line;
 	atomic_t te_irq_ready;
@@ -444,11 +472,26 @@ struct mdss_dsi_ctrl_pdata {
 	struct mdss_intf_recovery *recovery;
 
 	struct dsi_panel_cmds on_cmds;
-#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
+	struct dsi_panel_cmds post_dms_on_cmds;
+	struct dsi_panel_cmds post_panel_on_cmds;
+#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 	struct dsi_panel_cmds off_cmds;
 	struct dsi_panel_cmds off_cmds_extra;
 #else
 	struct dsi_panel_cmds off_cmds;
+#endif
+#ifdef CONFIG_LGE_READER_MODE
+	struct dsi_panel_cmds reader_mode_initial_step1_cmds;
+	struct dsi_panel_cmds reader_mode_initial_step2_cmds;
+	struct dsi_panel_cmds reader_mode_initial_step3_cmds;
+	struct dsi_panel_cmds reader_mode_step1_cmds;
+	struct dsi_panel_cmds reader_mode_step2_cmds;
+	struct dsi_panel_cmds reader_mode_step3_cmds;
+	struct dsi_panel_cmds reader_mode_off_cmds;
+	struct dsi_panel_cmds charging_time_on_cmds;
+	struct dsi_panel_cmds charging_time_off_cmds;
+	struct dsi_panel_cmds reader_mode_mono_enable_cmds;
+	struct dsi_panel_cmds reader_mode_mono_disable_cmds;
 #endif
 #if defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
 #if defined (CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
@@ -512,6 +555,11 @@ struct mdss_dsi_ctrl_pdata {
 	int horizontal_idle_cnt;
 	struct panel_horizontal_idle *line_idle;
 	struct mdss_util_intf *mdss_util;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	struct lge_pan_data *lge_pan_data;
+#endif
+
+	bool dfps_status;	/* dynamic refresh status */
 };
 
 struct dsi_status_data {
@@ -524,10 +572,10 @@ int dsi_panel_device_register(struct device_node *pan_node,
 				struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 
 int mdss_dsi_cmds_tx(struct mdss_dsi_ctrl_pdata *ctrl,
-		struct dsi_cmd_desc *cmds, int cnt);
+		struct dsi_cmd_desc *cmds, int cnt, int use_dma_tpg);
 
 int mdss_dsi_cmds_rx(struct mdss_dsi_ctrl_pdata *ctrl,
-			struct dsi_cmd_desc *cmds, int rlen);
+			struct dsi_cmd_desc *cmds, int rlen, int use_dma_tpg);
 
 void mdss_dsi_host_init(struct mdss_panel_data *pdata);
 void mdss_dsi_op_mode_config(int mode,
@@ -595,6 +643,7 @@ int mdss_panel_get_dst_fmt(u32 bpp, char mipi_mode, u32 pixel_packing,
 
 int mdss_dsi_register_recovery_handler(struct mdss_dsi_ctrl_pdata *ctrl,
 		struct mdss_intf_recovery *recovery);
+void mdss_dsi_unregister_bl_settings(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 
 #if defined(CONFIG_LGE_MIPI_DSI_LGD_NT35521_E7II_WXGA)
 int e7ii_panel_power(struct mdss_panel_data *pdata, int enable);

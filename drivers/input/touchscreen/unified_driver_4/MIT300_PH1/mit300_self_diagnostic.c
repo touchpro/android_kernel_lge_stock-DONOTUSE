@@ -33,24 +33,56 @@
 #define IMGREG 1
 
 /* Self-Diagnosis Limitation Value */
-#define RAW_DATA_MAX 2850
-#define RAW_DATA_MIN 750
-#define RAW_DATA_MARGIN 0
-#define CM_DELTA_MIN 50
-#define JITTER_MAX 40
-#define JITTER_MIN 0
-#define OPEN_SHORT_MAX 3800
-#define OPEN_SHORT_MIN 800
-#define MUX_SHORT_MAX 3800
-#define MUX_SHORT_MIN 800
-//#define RAW_DATA_OTP_MIN 15000
-//#define RAW_DATA_OTP_MAX 39000
-//#define LPWG_RAW_DATA_MAX 3000
-//#define LPWG_RAW_DATA_MIN 800
-//#define LPWG_JITTER_MAX 30
-//#define LPWG_JITTER_MIN 0
-//#define SLOPE_MAX 150
-//#define SLOPE_MIN 70
+/* CUT 7*/
+#define C7_RAW_DATA_MAX 3000
+#define C7_RAW_DATA_MIN 1000
+#define C7_RAW_DATA_MARGIN 0
+#define C7_CM_DELTA_MIN 55
+#define C7_JITTER_MAX 34
+#define C7_JITTER_MIN 0
+#define C7_OPEN_SHORT_MAX 3600
+#define C7_OPEN_SHORT_MIN 800
+#define C7_MUX_SHORT_MAX 3600
+#define C7_MUX_SHORT_MIN 800
+#define C7_LPWG_RAW_DATA_MAX 3000
+#define C7_LPWG_RAW_DATA_MIN 1000
+#define C7_LPWG_JITTER_MAX 23
+#define C7_LPWG_JITTER_MIN 0
+#define C7_AVG_JITTER_MAX 23
+
+/* CUT 6*/
+#define C6_RAW_DATA_MAX 3000
+#define C6_RAW_DATA_MIN 1400
+#define C6_RAW_DATA_MARGIN 0
+#define C6_CM_DELTA_MIN 55
+#define C6_JITTER_MAX 34
+#define C6_JITTER_MIN 0
+#define C6_OPEN_SHORT_MAX 3500
+#define C6_OPEN_SHORT_MIN 850
+#define C6_MUX_SHORT_MAX 3500
+#define C6_MUX_SHORT_MIN 850
+#define C6_LPWG_RAW_DATA_MAX 2950
+#define C6_LPWG_RAW_DATA_MIN 1050
+#define C6_LPWG_JITTER_MAX 23
+#define C6_LPWG_JITTER_MIN 0
+#define C6_AVG_JITTER_MAX 26
+
+/* CUT 5*/
+#define C5_RAW_DATA_MAX 3000
+#define C5_RAW_DATA_MIN 750
+#define C5_RAW_DATA_MARGIN 0
+#define C5_CM_DELTA_MIN 55
+#define C5_JITTER_MAX 32
+#define C5_JITTER_MIN 0
+#define C5_OPEN_SHORT_MAX 3500
+#define C5_OPEN_SHORT_MIN 1500
+#define C5_MUX_SHORT_MAX 3500
+#define C5_MUX_SHORT_MIN 1500
+#define C5_LPWG_RAW_DATA_MAX 3000
+#define C5_LPWG_RAW_DATA_MIN 1000
+#define C5_LPWG_JITTER_MAX 23
+#define C5_LPWG_JITTER_MIN 0
+#define C5_AVG_JITTER_MAX 26
 
 /****************************************************************************
  * Macros
@@ -78,6 +110,7 @@ struct mit300_buf_addr{
 * Variables
 ****************************************************************************/
 bool test_busy = false;
+int bootmode;
 uint16_t mit_data[MAX_ROW][MAX_COL];
 s16 intensity_data[MAX_ROW][MAX_COL];
 
@@ -125,7 +158,7 @@ static int MIT300_GetReadyStatus(struct i2c_client *client)
 		wbuf[0] = MIP_R0_LOG;
 		wbuf[1] = MIP_R1_LOG_TRIGGER;
 		wbuf[2] = 0;
-		if(Mit300_I2C_Write(client, wbuf, 3)){
+		if( Mit300_I2C_Write(client, wbuf, 3) < 0 ){
 			TOUCH_ERR("[ERROR] mip_i2c_write\n");
 		}
 	}
@@ -355,72 +388,205 @@ static int  MIT300_PrintData(struct i2c_client *client, char *buf, int* result, 
 	int max_data = 0;
 	int limit_upper = 0;
 	int limit_lower = 0;
+	int jitter_avg_1 = 0;
+	int jitter_avg_2 = 0;
+	int avg_max_1 = 0;
+	int avg_max_2 = 0;
+	int avg_jitter_max = 0;
 	int error_count = 0;
+	int avg_error_count = 0;
 
 	TOUCH_FUNC();
+
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		TOUCH_LOG("DDIC Revision Status : Cut.%d\n", lge_get_db7400_cut());
+#endif
 
 	switch (type) {
 	case RAW_DATA_SHOW:
 		TOUCH_LOG("[Rawdata Result]\n");
+		ret += sprintf(buf + ret,"[DDIC Revision Status : Cut.%d]\n\n", lge_get_db7400_cut());
 		ret += sprintf(buf + ret,"[Rawdata Result]\n");
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_upper = RAW_DATA_MAX + RAW_DATA_MARGIN;
-		limit_lower = RAW_DATA_MIN - RAW_DATA_MARGIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_RAW_DATA_MAX + C7_RAW_DATA_MARGIN;
+			limit_lower = C7_RAW_DATA_MIN - C7_RAW_DATA_MARGIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_RAW_DATA_MAX + C6_RAW_DATA_MARGIN;
+			limit_lower = C6_RAW_DATA_MIN - C6_RAW_DATA_MARGIN;
+		} else {
+			limit_upper = C5_RAW_DATA_MAX + C5_RAW_DATA_MARGIN;
+			limit_lower = C5_RAW_DATA_MIN - C5_RAW_DATA_MARGIN;
+		}
+#endif
 		break;
 	case RAW_DATA_STORE:
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_upper = RAW_DATA_MAX + RAW_DATA_MARGIN;
-		limit_lower = RAW_DATA_MIN - RAW_DATA_MARGIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_RAW_DATA_MAX + C7_RAW_DATA_MARGIN;
+			limit_lower = C7_RAW_DATA_MIN - C7_RAW_DATA_MARGIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_RAW_DATA_MAX + C6_RAW_DATA_MARGIN;
+			limit_lower = C6_RAW_DATA_MIN - C6_RAW_DATA_MARGIN;
+		} else {
+			limit_upper = C5_RAW_DATA_MAX + C5_RAW_DATA_MARGIN;
+			limit_lower = C5_RAW_DATA_MIN - C5_RAW_DATA_MARGIN;
+		}
+#endif
 		break;
 	case OPENSHORT_SHOW:
 		TOUCH_LOG("[Openshort Result]\n");
 		ret += sprintf(buf + ret,"[Openshort Result]\n");
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_upper = OPEN_SHORT_MAX;
-		limit_lower = OPEN_SHORT_MIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_OPEN_SHORT_MAX;
+			limit_lower = C7_OPEN_SHORT_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_OPEN_SHORT_MAX;
+			limit_lower = C6_OPEN_SHORT_MIN;
+		} else {
+			limit_upper = C5_OPEN_SHORT_MAX;
+			limit_lower = C5_OPEN_SHORT_MIN;
+		}
+#endif
 		break;
 	case OPENSHORT_STORE:
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_upper = OPEN_SHORT_MAX;
-		limit_lower = OPEN_SHORT_MIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_OPEN_SHORT_MAX;
+			limit_lower = C7_OPEN_SHORT_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_OPEN_SHORT_MAX;
+			limit_lower = C6_OPEN_SHORT_MIN;
+		} else {
+			limit_upper = C5_OPEN_SHORT_MAX;
+			limit_lower = C5_OPEN_SHORT_MIN;
+		}
+#endif
 		break;
 	case MUXSHORT_SHOW:
 		TOUCH_LOG("[MUXSHORT Result]\n");
 		ret += sprintf(buf + ret,"[MUXSHORT Result]\n");
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_upper = MUX_SHORT_MAX;
-		limit_lower = MUX_SHORT_MIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_MUX_SHORT_MAX;
+			limit_lower = C7_MUX_SHORT_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_MUX_SHORT_MAX;
+			limit_lower = C6_MUX_SHORT_MIN;
+		} else {
+			limit_upper = C5_MUX_SHORT_MAX;
+			limit_lower = C5_MUX_SHORT_MIN;
+		}
+#endif
 		break;
 	case CM_DELTA_SHOW:
 		TOUCH_LOG("[Delta Result]\n");
 		ret += sprintf(buf + ret,"[Delta Result]\n");
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_lower = CM_DELTA_MIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_lower = C7_CM_DELTA_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_lower = C6_CM_DELTA_MIN;
+		} else {
+			limit_lower = C5_CM_DELTA_MIN;
+		}
 		break;
+#endif
 	case CM_DELTA_STORE:
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_lower = CM_DELTA_MIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_lower = C7_CM_DELTA_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_lower = C6_CM_DELTA_MIN;
+		} else {
+			limit_lower = C5_CM_DELTA_MIN;
+		}
+#endif
 		break;
 	case CM_JITTER_SHOW:
 		TOUCH_LOG("[Jitter Result]\n");
 		ret += sprintf(buf + ret,"[Jitter Result]\n");
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_upper = JITTER_MAX;
-		limit_lower = JITTER_MIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_JITTER_MAX;
+			limit_lower = C7_JITTER_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_JITTER_MAX;
+			limit_lower = C6_JITTER_MIN;
+		} else {
+			limit_upper = C5_JITTER_MAX;
+			limit_lower = C5_JITTER_MIN;
+		}
+#endif
 		break;
 	case CM_JITTER_STORE:
 		min_data = mit_data[0][0];
 		max_data = mit_data[0][0];
-		limit_upper = JITTER_MAX;
-		limit_lower = JITTER_MIN;
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_JITTER_MAX;
+			limit_lower = C7_JITTER_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_JITTER_MAX;
+			limit_lower = C6_JITTER_MIN;
+		} else {
+			limit_upper = C5_JITTER_MAX;
+			limit_lower = C5_JITTER_MIN;
+		}
+#endif
+		break;
+    case LPWG_JITTER_SHOW:
+		TOUCH_LOG("[LPWG Jitter Result]\n");
+		ret += sprintf(buf + ret,"[LPWG Jitter Result]\n");
+		min_data = mit_data[0][0];
+		max_data = mit_data[0][0];
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_LPWG_JITTER_MAX;
+			limit_lower = C7_LPWG_JITTER_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_LPWG_JITTER_MAX;
+			limit_lower = C6_LPWG_JITTER_MIN;
+		} else {
+			limit_upper = C5_LPWG_JITTER_MAX;
+			limit_lower = C5_LPWG_JITTER_MIN;
+		}
+#endif
+		break;
+    case LPWG_ABS_SHOW:
+		TOUCH_LOG("[LPWG ABS Result]\n");
+		ret += sprintf(buf + ret,"[LPWG ABS Result]\n");
+		min_data = mit_data[1][1];
+		max_data = mit_data[1][1];
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		if (lge_get_db7400_cut() >= CUT7) {
+			limit_upper = C7_LPWG_RAW_DATA_MAX;
+			limit_lower = C7_LPWG_RAW_DATA_MIN;
+		} else if(lge_get_db7400_cut() == CUT6) {
+			limit_upper = C6_LPWG_RAW_DATA_MAX;
+			limit_lower = C6_LPWG_RAW_DATA_MIN;
+		} else {
+			limit_upper = C5_LPWG_RAW_DATA_MAX;
+			limit_lower = C5_LPWG_RAW_DATA_MIN;
+		}
+#endif
 		break;
 	case INTENSITY_SHOW:
 		TOUCH_LOG("[Intensity Result]\n");
@@ -430,34 +596,16 @@ static int  MIT300_PrintData(struct i2c_client *client, char *buf, int* result, 
 		return TOUCH_FAIL;
 	}
 
-	for (row = 0 ; row < MAX_ROW ; row++) {
-		//TOUCH_LOG("[%2d]  ", row);
-		if (type == RAW_DATA_SHOW ||
-			type == OPENSHORT_SHOW ||
-			type == MUXSHORT_SHOW ||
-			type == CM_DELTA_SHOW ||
-			type == CM_JITTER_SHOW ||
-			type == INTENSITY_SHOW) {
+	/* LPWG ABS Inspection of except for both ends of column(0,18) */
+	if (type == LPWG_ABS_SHOW) {
+		for (row = 0 ; row < MAX_ROW ; row++) {
+				ret += sprintf(buf + ret,"[%2d]  ", row);
 
-			ret += sprintf(buf + ret,"[%2d]  ", row);
-		}
-
-		for (col = 0 ; col < MAX_COL ; col++) {
-			if (type != INTENSITY_SHOW) {
-
-				/* Do not check limit_upper value in CM Delta Test */
-				if (type == CM_DELTA_SHOW || type == CM_DELTA_STORE) {
-					if (mit_data[row][col] >= limit_lower) {
-						//TOUCH_LOG("%5d ", mit_data[row][col]);
-						ret += sprintf(buf + ret,"%5d ", mit_data[row][col]);
-					} else {
-						ret += sprintf(buf + ret,"!%4d ", mit_data[row][col]);
-						error_count++;
-						*result = TOUCH_FAIL;
-					}
+			for (col = 0 ; col < MAX_COL ; col++) {
+				if ((col == 0) || (col == MAX_COL-1)) {
+					ret += sprintf(buf + ret," XXX ");
 				} else {
-					if (mit_data[row][col] >= limit_lower && mit_data[row][col] <= limit_upper) {
-						//TOUCH_LOG("%5d ", mit_data[row][col]);
+					if ((mit_data[row][col] >= limit_lower) && (mit_data[row][col] <= limit_upper)) {
 						ret += sprintf(buf + ret,"%5d ", mit_data[row][col]);
 					} else {
 						ret += sprintf(buf + ret,"!%4d ", mit_data[row][col]);
@@ -465,37 +613,137 @@ static int  MIT300_PrintData(struct i2c_client *client, char *buf, int* result, 
 						*result = TOUCH_FAIL;
 					}
 				}
-
-				if (type == RAW_DATA_STORE ||
-					type == OPENSHORT_STORE ||
-					type == CM_DELTA_STORE ||
-					type == CM_JITTER_STORE) {
-						ret += sprintf(buf + ret,",");
-				}
-
-				/* Do not check limit_upper value in CM Delta Test */
-				if (type == CM_DELTA_SHOW || type == CM_DELTA_STORE) {
-					min_data = (min_data > mit_data[row][col]) ? mit_data[row][col] : min_data;
-				} else {
+				if (col > 0 && col < MAX_COL-1) {
 					min_data = (min_data > mit_data[row][col]) ? mit_data[row][col] : min_data;
 					max_data = (max_data < mit_data[row][col]) ? mit_data[row][col] : max_data;
 				}
-			} else if (type == INTENSITY_SHOW){
-				//TOUCH_LOG("%4d ", intensity_data[row][col]);
-				/* 17 : MAX_COL - 1 (Because of invert left and right side) */
-				ret += sprintf(buf + ret,"%4d ", intensity_data[row][17-col]);
 			}
+		ret += sprintf(buf + ret,"\n");
 		}
+	} else if (type == LPWG_JITTER_SHOW) {  /* Inspection for 10 column areas(0~9) in LPWG Jitter Test */
+		for (row = 0 ; row < MAX_ROW ; row++) {
+				ret += sprintf(buf + ret,"[%2d]  ", row);
 
-		//TOUCH_LOG("\n");
-		if (type == RAW_DATA_SHOW ||
-			type == OPENSHORT_SHOW ||
-			type == MUXSHORT_SHOW ||
-			type == CM_DELTA_SHOW ||
-			type == CM_JITTER_SHOW ||
-			type == INTENSITY_SHOW) {
+			for (col = 0 ; col < MAX_COL ; col++) {
+				if (col >= MAX_COL-8) {
+					ret += sprintf(buf + ret," XXX ");
+				} else {
+					if ((mit_data[row][col] >= limit_lower) && (mit_data[row][col] <= limit_upper)) {
+						ret += sprintf(buf + ret,"%5d ", mit_data[row][col]);
+					} else {
+						ret += sprintf(buf + ret,"!%4d ", mit_data[row][col]);
+						error_count++;
+						*result = TOUCH_FAIL;
+					}
+				}
+				if (col < MAX_COL-8) {
+					min_data = (min_data > mit_data[row][col]) ? mit_data[row][col] : min_data;
+					max_data = (max_data < mit_data[row][col]) ? mit_data[row][col] : max_data;
+				}
+			}
+		ret += sprintf(buf + ret,"\n");
+		}
+	} else { /* Another Inspection */
+		for (row = 0 ; row < MAX_ROW ; row++) {
+			if (type == RAW_DATA_SHOW ||
+				type == OPENSHORT_SHOW ||
+				type == MUXSHORT_SHOW ||
+				type == CM_DELTA_SHOW ||
+				type == CM_JITTER_SHOW ||
+				type == INTENSITY_SHOW) {
 
-			ret += sprintf(buf + ret,"\n");
+				ret += sprintf(buf + ret,"[%2d]  ", row);
+			}
+
+			for (col = 0 ; col < MAX_COL ; col++) {
+				if (type != INTENSITY_SHOW) {
+
+					/* Do not check limit_upper value in CM Delta Test */
+					if (type == CM_DELTA_SHOW || type == CM_DELTA_STORE) {
+						if (mit_data[row][col] >= limit_lower) {
+							//TOUCH_LOG("%5d ", mit_data[row][col]);
+							ret += sprintf(buf + ret,"%5d ", mit_data[row][col]);
+						} else {
+							ret += sprintf(buf + ret,"!%4d ", mit_data[row][col]);
+							error_count++;
+							*result = TOUCH_FAIL;
+						}
+					} else {
+						if (mit_data[row][col] >= limit_lower && mit_data[row][col] <= limit_upper) {
+							//TOUCH_LOG("%5d ", mit_data[row][col]);
+							ret += sprintf(buf + ret,"%5d ", mit_data[row][col]);
+						} else {
+							ret += sprintf(buf + ret,"!%4d ", mit_data[row][col]);
+							error_count++;
+							*result = TOUCH_FAIL;
+						}
+					}
+
+					if (type == RAW_DATA_STORE ||
+						type == OPENSHORT_STORE ||
+						type == CM_DELTA_STORE ||
+						type == CM_JITTER_STORE) {
+							ret += sprintf(buf + ret,",");
+					}
+
+					/* Do not check limit_upper value in CM Delta Test */
+					if (type == CM_DELTA_SHOW || type == CM_DELTA_STORE) {
+						min_data = (min_data > mit_data[row][col]) ? mit_data[row][col] : min_data;
+					} else {
+						min_data = (min_data > mit_data[row][col]) ? mit_data[row][col] : min_data;
+						max_data = (max_data < mit_data[row][col]) ? mit_data[row][col] : max_data;
+					}
+
+					if (type == CM_JITTER_SHOW || type == CM_JITTER_STORE) {
+						if (col < MAX_COL / 2)
+							jitter_avg_1 += mit_data[row][col];
+						else
+							jitter_avg_2 += mit_data[row][col];
+					}
+				} else if (type == INTENSITY_SHOW){
+					//TOUCH_LOG("%4d ", intensity_data[row][col]);
+					/* 17 : MAX_COL - 1 (Because of invert left and right side) */
+					ret += sprintf(buf + ret,"%4d ", intensity_data[row][17-col]);
+				}
+			}
+
+			//TOUCH_LOG("\n");
+			if (type == CM_JITTER_SHOW) {
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+				if (lge_get_db7400_cut() >= CUT7) {
+					avg_jitter_max = C7_AVG_JITTER_MAX;
+				} else if(lge_get_db7400_cut() == CUT6) {
+					avg_jitter_max = C6_AVG_JITTER_MAX;
+				} else {
+					avg_jitter_max = C5_AVG_JITTER_MAX;
+				}
+#endif
+				jitter_avg_1 = jitter_avg_1 / (MAX_COL / 2);
+				jitter_avg_2 = jitter_avg_2 / (MAX_COL / 2);
+
+				if (jitter_avg_1 > avg_jitter_max) {
+					//TOUCH_LOG(" L: %d ", jitter_avg_1);
+					avg_error_count++;
+					*result = TOUCH_FAIL;
+				}
+				if (jitter_avg_2 > avg_jitter_max) {
+					//TOUCH_LOG(" R: %d ", jitter_avg_1);
+					avg_error_count++;
+					*result = TOUCH_FAIL;
+				}
+
+				avg_max_1 = (avg_max_1 < jitter_avg_1) ? jitter_avg_1 : avg_max_1;
+				avg_max_2 = (avg_max_2 < jitter_avg_2) ? jitter_avg_2 : avg_max_2;
+
+				ret += sprintf(buf + ret,"\n");
+			} else if (type == RAW_DATA_SHOW ||
+				type == OPENSHORT_SHOW ||
+				type == MUXSHORT_SHOW ||
+				type == CM_DELTA_SHOW ||
+				type == INTENSITY_SHOW) {
+
+				ret += sprintf(buf + ret,"\n");
+			}
 		}
 	}
 
@@ -503,6 +751,8 @@ static int  MIT300_PrintData(struct i2c_client *client, char *buf, int* result, 
 		TOUCH_LOG("=======Type(%d) Result is FAIL=======\n", type);
 		ret += sprintf(buf + ret, "Type(%d) Result is FAIL\n", type);
 		ret += sprintf(buf + ret, "This is %d error in test with '!' character\n", error_count);
+		if (type == CM_JITTER_SHOW)
+			ret += sprintf(buf + ret, "( %d : This is average error count in cmJitter test)\n", avg_error_count);
 	}
 
 	if (type == RAW_DATA_SHOW ||
@@ -510,6 +760,8 @@ static int  MIT300_PrintData(struct i2c_client *client, char *buf, int* result, 
 		type == MUXSHORT_SHOW ||
 		type == CM_DELTA_SHOW ||
 		type == CM_JITTER_SHOW ||
+		type == LPWG_JITTER_SHOW ||
+		type == LPWG_ABS_SHOW ||
 		type == INTENSITY_SHOW) {
 
 		if (*result != TOUCH_FAIL) {
@@ -524,6 +776,11 @@ static int  MIT300_PrintData(struct i2c_client *client, char *buf, int* result, 
 		} else {
 			//TOUCH_LOG("MAX : %d,  MIN : %d  (MAX - MIN = %d), Spec lower : %d, upper : %d\n\n", max_data , min_data, max_data - min_data, limit_lower, limit_upper);
 			ret += sprintf(buf + ret,"MAX = %d,  MIN = %d  (MAX - MIN = %d), Spec lower : %d, upper : %d\n\n",max_data, min_data, max_data - min_data, limit_lower, limit_upper);
+			if (type == CM_JITTER_SHOW) {
+				avg_max_1 = (avg_max_1 < avg_max_2) ? avg_max_2 : avg_max_1;
+				//TOUCH_LOG("AVERAGE JITTER MAX = %d\n\n",avg_max_1);
+				ret += sprintf(buf + ret,"AVERAGE JITTER MAX = %d\n\n", avg_max_1);
+			}
 		}
 	}
 	return ret;
@@ -571,6 +828,7 @@ int MIT300_DoTest(struct i2c_client *client, int type){
 			reg_type = IMGREG;
 			break;
 		case ABS_SHOW:
+		case LPWG_ABS_SHOW:
 			TOUCH_LOG("=== ABS test ===\n");
 			test_type = MIP_TEST_TYPE_CM_ABS;
 			reg_type = TESTREG;
@@ -586,6 +844,7 @@ int MIT300_DoTest(struct i2c_client *client, int type){
 			reg_type = TESTREG;
 			break;
 		case CM_JITTER_SHOW:
+		case LPWG_JITTER_SHOW:
 			TOUCH_LOG("=== Jitter test ===\n");
 			test_type = MIP_TEST_TYPE_CM_JITTER;
 			reg_type = TESTREG;
@@ -672,6 +931,8 @@ int MIT300_DoTest(struct i2c_client *client, int type){
 			TOUCH_ERR("%s [ERROR] Write - test type\n", __func__);
 			goto ERROR;
 		}
+		if (type == LPWG_JITTER_SHOW)
+			mdelay(1000);
 		/* Wait ready status */
 		wait_cnt = 40;
 		while(wait_cnt--){
@@ -845,8 +1106,10 @@ ssize_t MIT300_GetTestResult(struct i2c_client *client, char *pBuf, int *result,
 		break;
 	case RAW_DATA_STORE:
 		snprintf(temp_buf, strlen(pBuf), "%s", pBuf);
-		sprintf(data_path, "/data/logger/%s.csv", temp_buf);
-
+		if (bootmode == BOOT_MINIOS)
+			sprintf(data_path, "/data/logger/%s.csv", temp_buf);
+		else if (bootmode == BOOT_NORMAL)
+			sprintf(data_path, "/sdcard/%s.csv", temp_buf);
 		ret += MIT300_PrintData(client, read_buf, result, type);
 		if (ret < 0) {
 			TOUCH_ERR("fail to print type data\n");
@@ -876,7 +1139,10 @@ ssize_t MIT300_GetTestResult(struct i2c_client *client, char *pBuf, int *result,
 		break;
 	case OPENSHORT_STORE:
 		snprintf(temp_buf, strlen(pBuf), "%s", pBuf);
-		sprintf(data_path, "/data/logger/%s.csv", temp_buf);
+		if (bootmode == BOOT_MINIOS)
+			sprintf(data_path, "/data/logger/%s.csv", temp_buf);
+		else if (bootmode == BOOT_NORMAL)
+			sprintf(data_path, "/sdcard/%s.csv", temp_buf);
 		ret += MIT300_PrintData(client, read_buf, result, type);
 		if (ret < 0) {
 			TOUCH_ERR("fail to print type data\n");
@@ -913,7 +1179,10 @@ ssize_t MIT300_GetTestResult(struct i2c_client *client, char *pBuf, int *result,
 		break;
 	case CM_DELTA_STORE:
 		snprintf(temp_buf, strlen(pBuf), "%s", pBuf);
-		sprintf(data_path, "/data/logger/%s.csv", temp_buf);
+		if (bootmode == BOOT_MINIOS)
+			sprintf(data_path, "/data/logger/%s.csv", temp_buf);
+		else if (bootmode == BOOT_NORMAL)
+			sprintf(data_path, "/sdcard/%s.csv", temp_buf);
 		ret += MIT300_PrintData(client, read_buf, result, type);
 		if (ret < 0) {
 			TOUCH_ERR("fail to print type data\n");
@@ -939,7 +1208,10 @@ ssize_t MIT300_GetTestResult(struct i2c_client *client, char *pBuf, int *result,
 		break;
 	case CM_JITTER_STORE:
 		snprintf(temp_buf, strlen(pBuf), "%s", pBuf);
-		sprintf(data_path, "/data/logger/%s.csv", temp_buf);
+		if (bootmode == BOOT_MINIOS)
+			sprintf(data_path, "/data/logger/%s.csv", temp_buf);
+		else if (bootmode == BOOT_NORMAL)
+			sprintf(data_path, "/sdcard/%s.csv", temp_buf);
 		ret += MIT300_PrintData(client, read_buf, result, type);
 		if (ret < 0) {
 			TOUCH_ERR("fail to print type data\n");
@@ -955,6 +1227,20 @@ ssize_t MIT300_GetTestResult(struct i2c_client *client, char *pBuf, int *result,
 			TOUCH_LOG("%s open failed \n", data_path);
 		}
 		set_fs(old_fs);
+		break;
+	case LPWG_JITTER_SHOW:
+		ret += MIT300_PrintData(client, pBuf, result, type);
+		if (ret < 0) {
+			TOUCH_ERR("fail to print type data\n");
+			goto ERROR;
+		}
+		break;
+	case LPWG_ABS_SHOW:
+		ret += MIT300_PrintData(client, pBuf, result, type);
+		if (ret < 0) {
+			TOUCH_ERR("fail to print type data\n");
+			goto ERROR;
+		}
 		break;
 	case INTENSITY_SHOW:
 		ret += MIT300_PrintData(client, pBuf, result, type);

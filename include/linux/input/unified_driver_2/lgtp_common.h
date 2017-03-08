@@ -311,6 +311,7 @@ typedef struct TouchReportDataTag
 	u32 key; 	/* key index ( 0 means all key was released ) */
 	u32 knockOn; 	/* 1 means event sent, 0 means event processed by CFW */
 	u32 knockCode; 	/* 1 means event sent, 0 means event processed by CFW */
+	u32 swipe; 	/* 1 means event sent, 0 means event processed by CFW */
 	u32 hover;	/* 0 means far, near means 1 */
 	u32 knockCount;
 	TouchPoint knockData[MAX_KNOCK+1];

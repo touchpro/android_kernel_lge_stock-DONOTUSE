@@ -51,10 +51,10 @@
 #ifdef CONFIG_SND_PCM
 #include "f_audio_source.c"
 #endif
-#include "f_mass_storage.c"
-#if defined CONFIG_LGE_USB_G_ANDROID && defined CONFIG_SND_USB_AUDIO
+#if defined(CONFIG_SND_RAWMIDI) || defined(CONFIG_LGE_USB_G_ANDROID)
 #include "f_midi.c"
 #endif
+#include "f_mass_storage.c"
 #define USB_ETH_RNDIS y
 #include "f_diag.c"
 #include "f_qdss.c"
@@ -110,11 +110,11 @@ static const char longname[] = "Gadget Android";
 #ifdef CONFIG_USB_EMBEDDED_BATTERY_REBOOT
 static int firstboot_check = 1;
 #endif
-#if defined CONFIG_LGE_USB_G_ANDROID && defined CONFIG_SND_USB_AUDIO
+#ifdef CONFIG_LGE_USB_G_ANDROID
 /* f_midi configuration */
 #define MIDI_INPUT_PORTS    1
 #define MIDI_OUTPUT_PORTS   1
-#define MIDI_BUFFER_SIZE    256
+#define MIDI_BUFFER_SIZE    1024
 #define MIDI_QUEUE_LENGTH   32
 #endif
 
@@ -239,6 +239,9 @@ struct android_dev {
 #endif
 #if defined CONFIG_LGE_USB_G_ANDROID && defined CONFIG_LGE_PM
 	bool check_pif;
+#endif
+#ifdef CONFIG_LGE_USB_G_ANDROID
+	bool acc_wait_check;
 #endif
 };
 
@@ -594,6 +597,12 @@ static int android_enable(struct android_dev *dev)
 				return err;
 			}
 		}
+#ifdef CONFIG_LGE_USB_G_ANDROID
+		if (dev->acc_wait_check) {
+			dev->acc_wait_check = false;
+			acc_wait_event();
+		}
+#endif
 		usb_gadget_connect(cdev->gadget);
 	}
 
@@ -3120,7 +3129,8 @@ static ssize_t audio_source_pcm_show(struct device *dev,
 	struct audio_source_config *config = f->config;
 
 	/* print PCM card and device numbers */
-	return sprintf(buf, "%d %d\n", config->card, config->device);
+	return snprintf(buf, PAGE_SIZE,
+			"%d %d\n", config->card, config->device);
 }
 
 static DEVICE_ATTR(pcm, S_IRUGO, audio_source_pcm_show, NULL);
@@ -3186,7 +3196,8 @@ static struct android_usb_function uasp_function = {
 	.bind_config	= uasp_function_bind_config,
 };
 
-#if defined CONFIG_LGE_USB_G_ANDROID && defined CONFIG_SND_USB_AUDIO
+#ifdef CONFIG_LGE_USB_G_ANDROID
+#ifdef CONFIG_SND_RAWMIDI
 static int midi_function_init(struct android_usb_function *f,
 					struct usb_composite_dev *cdev)
 {
@@ -3241,6 +3252,7 @@ static struct android_usb_function midi_function = {
 	.attributes	= midi_function_attributes,
 };
 #endif
+#endif
 
 static struct android_usb_function *supported_functions[] = {
 	&ffs_function,
@@ -3275,7 +3287,7 @@ static struct android_usb_function *supported_functions[] = {
 #ifdef CONFIG_SND_PCM
 	&audio_source_function,
 #endif
-#if defined CONFIG_LGE_USB_G_ANDROID && defined CONFIG_SND_USB_AUDIO
+#if defined(CONFIG_SND_RAWMIDI) || defined(CONFIG_LGE_USB_G_ANDROID)
 	&midi_function,
 #endif
 	&uasp_function,
@@ -3686,6 +3698,9 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	bool audio_enabled = false;
 	static DEFINE_RATELIMIT_STATE(rl, 10*HZ, 1);
 	int err = 0;
+#ifdef CONFIG_LGE_USB_G_ANDROID
+	static bool accessory_enabled = false;
+#endif
 
 	if (!cdev)
 		return -ENODEV;
@@ -3743,6 +3758,12 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		}
 #endif
 
+#ifdef CONFIG_LGE_USB_G_ANDROID
+		if (accessory_enabled) {
+			accessory_enabled = false;
+			dev->acc_wait_check = true;
+		}
+#endif
 		/* Audio dock accessory is unable to enumerate device if
 		 * pull-up is enabled immediately. The enumeration is
 		 * reliable with 100 msec delay.
@@ -3755,6 +3776,11 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 				if (!strncmp(f_holder->f->name,
 						"audio_source", 12))
 					audio_enabled = true;
+#ifdef CONFIG_LGE_USB_G_ANDROID
+				if (!strncmp(f_holder->f->name,
+						"accessory", 9))
+					accessory_enabled = true;
+#endif
 			}
 		if (audio_enabled)
 			msleep(100);

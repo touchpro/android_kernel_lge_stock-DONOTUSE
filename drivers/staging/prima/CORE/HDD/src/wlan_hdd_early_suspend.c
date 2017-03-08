@@ -2239,6 +2239,7 @@ VOS_STATUS hdd_wlan_re_init(void)
 
     /* Restart all adapters */
    hdd_start_all_adapters(pHddCtx);
+   pHddCtx->con_scan_abort_cnt = 0;
    pHddCtx->hdd_mcastbcast_filter_set = FALSE;
    pHddCtx->btCoexModeSet = FALSE;
    hdd_register_mcast_bcast_filter(pHddCtx);
@@ -2326,6 +2327,7 @@ err_vosclose:
        pHddCtx->cfg_ini= NULL;
 
        wiphy_unregister(pHddCtx->wiphy);
+       hdd_wlan_clear_wiphy_channels(pHddCtx->wiphy);
        wiphy_free(pHddCtx->wiphy);
    }
    vos_preClose(&pVosContext);

@@ -168,6 +168,8 @@ struct k303b_status {
 
 	u8 xy_mode;
 	u8 z_mode;
+
+	int xyz[3];
 };
 
 static struct k303b_mag_platform_data default_k303b_mag_pdata = {
@@ -214,6 +216,15 @@ static struct status_registers {
 	.cntrl5.address = REG_CNTRL5_ADDR,
 	.cntrl5.default_value = REG_DEF_CNTRL5,
 };
+
+static inline s64 k303b_get_time_ns(void)
+{
+	struct timespec ts;
+
+	get_monotonic_boottime(&ts);
+
+	return timespec_to_ns(&ts);
+}
 
 static int k303b_i2c_read(struct k303b_status *stat, u8 *buf, int len)
 {
@@ -291,9 +302,11 @@ static int k303b_i2c_write(struct k303b_status *stat, u8 *buf, int len)
 static int k303b_hw_init(struct k303b_status *stat)
 {
 	int err = -1;
-	u8 buf[6];
+    u8 buf[6], retry = 3;
 
 	SENSOR_FUN();
+
+err_retry_whoami:
 
 	buf[0] = status_registers.who_am_i.address;
 	err = k303b_i2c_read(stat, buf, 1);
@@ -308,8 +321,13 @@ static int k303b_hw_init(struct k303b_status *stat)
 		SENSOR_ERR("device unknown. Expected: 0x%02x, Replies: 0x%02x",
 				status_registers.who_am_i.value, buf[0]);
 		err = -1;
-		goto err_unknown_device;
-	}
+        if (--retry <= 0) {
+            goto err_unknown_device;
+        } else {
+            mdelay(5);
+            goto err_retry_whoami;
+        }
+    }
 
 	status_registers.cntrl1.resume_value =
 					status_registers.cntrl1.default_value;
@@ -609,7 +627,10 @@ static int k303b_mag_disable(struct k303b_status *stat)
 {
 	if (atomic_cmpxchg(&stat->enabled_mag, 1, 0)) {
 		cancel_work_sync(&stat->input_work_mag);
-		hrtimer_cancel(&stat->hr_timer_mag);
+/* LGE_Changed by STM 2016-04-22 */
+#if 0
+        hrtimer_cancel(&stat->hr_timer_mag);
+#endif
 		k303b_mag_device_power_off(stat);
 	}
 
@@ -639,9 +660,6 @@ static int k303b_mag_get_data(struct k303b_status *stat, int *xyz)
 	pr_debug("%s read z=0x%02x 0x%02x (regH regL), z=%d (dec) [LSB]\n",
 		K303B_MAG_DEV_NAME, mag_data[5], mag_data[4], hw_d[2]);
 #endif
-
-	//printk(KERN_WARNING "k303b_mag2 = %d,%d,%d\n", hw_d[0], hw_d[1], hw_d[2]);
-
 /*
 	hw_d[0] = hw_d[0] * stat->sensitivity_mag;
 	hw_d[1] = hw_d[1] * stat->sensitivity_mag;
@@ -1274,11 +1292,13 @@ void k303b_mag_input_close(struct input_dev *dev)
 	k303b_mag_disable(stat);
 }
 
-static void k303b_mag_report_values(struct k303b_status *stat, int *xyz)
+static void k303b_mag_report_values(struct k303b_status *stat, s64 timestamp)
 {
-	input_report_abs(stat->input_dev_mag, ABS_X, xyz[0]);
-	input_report_abs(stat->input_dev_mag, ABS_Y, xyz[1]);
-	input_report_abs(stat->input_dev_mag, ABS_Z, xyz[2]);
+	input_report_abs(stat->input_dev_mag, ABS_X, stat->xyz[0]);
+	input_report_abs(stat->input_dev_mag, ABS_Y, stat->xyz[1]);
+	input_report_abs(stat->input_dev_mag, ABS_Z, stat->xyz[2]);
+	input_report_abs(stat->input_dev_mag, ABS_THROTTLE, timestamp >> 32);
+	input_report_abs(stat->input_dev_mag, ABS_RUDDER, timestamp & 0xffffffff);
 	input_sync(stat->input_dev_mag);
 }
 
@@ -1312,6 +1332,9 @@ static int k303b_mag_input_init(struct k303b_status *stat)
 	input_set_abs_params(stat->input_dev_mag, ABS_Z,
 				-MAG_G_MAX_NEG, MAG_G_MAX_POS, FUZZ, FLAT);
 
+	input_set_abs_params(stat->input_dev_mag, ABS_THROTTLE, INT_MIN, INT_MAX, 0, 0);
+	input_set_abs_params(stat->input_dev_mag, ABS_RUDDER, INT_MIN, INT_MAX, 0, 0);
+
 	err = input_register_device(stat->input_dev_mag);
 	if (err) {
 		SENSOR_ERR("unable to register magnetometer input device %s",
@@ -1336,7 +1359,6 @@ static void k303b_input_cleanup(struct k303b_status *stat)
 static void poll_function_work_mag(struct work_struct *input_work_mag)
 {
 	struct k303b_status *stat;
-	int xyz[3] = { 0 };
 	int err;
 
 	stat = container_of((struct work_struct *)input_work_mag,
@@ -1345,15 +1367,12 @@ static void poll_function_work_mag(struct work_struct *input_work_mag)
 	mutex_lock(&stat->lock);
 
 	if (atomic_read(&stat->enabled_mag)) {
-		err = k303b_mag_get_data(stat, xyz);
+		err = k303b_mag_get_data(stat, stat->xyz);
 		if (err < 0)
 			SENSOR_ERR("get_magnetometer_data failed");
-		else
-			k303b_mag_report_values(stat, xyz);
 	}
 
 	mutex_unlock(&stat->lock);
-	hrtimer_start(&stat->hr_timer_mag, stat->ktime_mag, HRTIMER_MODE_REL);
 }
 
 enum hrtimer_restart poll_function_read_mag(struct hrtimer *timer)
@@ -1364,7 +1383,12 @@ enum hrtimer_restart poll_function_read_mag(struct hrtimer *timer)
 	stat = container_of((struct hrtimer *)timer,
 				struct k303b_status, hr_timer_mag);
 
-	queue_work(k303b_workqueue, &stat->input_work_mag);
+	k303b_mag_report_values(stat, k303b_get_time_ns());
+
+	if (atomic_read(&stat->enabled_mag)) {
+		queue_work(k303b_workqueue, &stat->input_work_mag);
+		hrtimer_start(&stat->hr_timer_mag, stat->ktime_mag, HRTIMER_MODE_REL);
+	}
 	return HRTIMER_NORESTART;
 }
 
@@ -1419,13 +1443,13 @@ static int k303b_probe(struct i2c_client *client,
 		goto err_mutexunlock;
 	}
 
-        // Initialize
-        stat->pdata_mag->power_on = NULL;
-        stat->pdata_mag->power_off = NULL;
-        stat->pdata_mag->init = NULL;
-        stat->pdata_mag->exit = NULL;
+	// Initialize
+	stat->pdata_mag->power_on = NULL;
+	stat->pdata_mag->power_off = NULL;
+	stat->pdata_mag->init = NULL;
+	stat->pdata_mag->exit = NULL;
 
-	if(client->dev.of_node) {
+	if (client->dev.of_node) {
 		/* device tree type */
 		err = k303b_parse_dt(&client->dev,stat->pdata_mag);
 
@@ -1449,7 +1473,7 @@ static int k303b_probe(struct i2c_client *client,
 		goto exit_kfree_pdata;
 	}
 
-/*
+	/*
 	if (stat->pdata_mag->init) {
 		err = stat->pdata_mag->init();
 		if (err < 0) {
@@ -1457,8 +1481,8 @@ static int k303b_probe(struct i2c_client *client,
 				"magnetometer init failed: %d\n", err);
 			goto err_pdata_mag_init;
 		}
-
-	}*/
+	}
+	*/
 
 	err = k303b_hw_init(stat);
 	if (err < 0) {
@@ -1520,7 +1544,7 @@ exit_kfree_pdata:
 err_mutexunlock:
 	mutex_unlock(&stat->lock);
 	kfree(stat);
-	if (!k303b_workqueue) {
+	if (k303b_workqueue) {
 		flush_workqueue(k303b_workqueue);
 		destroy_workqueue(k303b_workqueue);
 	}
@@ -1544,7 +1568,7 @@ static int k303b_remove(struct i2c_client *client)
 	//if (stat->pdata_mag->exit)
 	//	stat->pdata_mag->exit();
 
-	if (!k303b_workqueue) {
+	if (k303b_workqueue) {
 		flush_workqueue(k303b_workqueue);
 		destroy_workqueue(k303b_workqueue);
 	}

@@ -356,6 +356,12 @@ config MN34153
     ---help---
 	This product is MOS type image sensor of Type-1/3.06¡± 13.38 mega pixels with R,G,B color filter.
 
+config IMX258
+    bool "Sensor IMX258 (Sony 13MP)"
+    depends on MSMB_CAMERA
+    ---help---
+        Sony 13 MP Bayer Sensor with auto focus.uses
+
 config HI842
     bool "Sensor Hi-842 (SK Hynix 8MP, YACG4B0C95HC)"
     depends on MSMB_CAMERA
@@ -456,6 +462,12 @@ config LGE_K5_CAMERA
 	help
 	  Enable K5 LGE camera
 
+config LGE_PH1_CAMERA
+	bool "PH1 LGE camera"
+	depends on MACH_LGE
+	help
+	  Enable PH1 LGE camera
+
 config LGE_P1B_CAMERA
 	bool "Lion Beat LGE camera"
 	depends on MACH_LGE
@@ -491,3 +503,7 @@ config LGE_DISABLE_VCM_POWER_DOWN_MODE
 	depends on MACH_LGE
 	help
 	  Disable vcm power down mode
+
+config LGE_DISPLAY_CABC_SUPPORT
+	bool "Enable contents adaptive backlight control"
+	default n

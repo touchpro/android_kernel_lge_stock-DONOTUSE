@@ -145,6 +145,12 @@ config ONESHOT_SYNC_USER
 	help
 	  Provide a userspace API for creating oneshot sync objects.
 
+config ANDROID_LOGGER_MS_TIME
+        tristate "Android log microsecond for driver"
+        default n
+        ---help---
+          This adds support for microsecond time logging.
+
 source "drivers/staging/android/ion/Kconfig"
 
 source "drivers/staging/android/fiq_debugger/Kconfig"

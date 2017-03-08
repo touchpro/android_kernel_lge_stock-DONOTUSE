@@ -208,3 +208,114 @@ int32_t msm_eeprom_checksum_lgit_v0d(struct msm_eeprom_ctrl_t *e_ctrl) {
 
 	return rc;
 }
+
+int32_t msm_eeprom_checksum_lgit_hi553(struct msm_eeprom_ctrl_t *e_ctrl) {
+	int32_t rc = -EFAULT;
+
+	uint32_t dataSum_AWB_5K = 0;
+	uint32_t dataSum_LSC_5K = 0;
+
+	uint32_t checkSum_AWB_5K;
+	uint32_t checkSum_LSC_5K;
+
+	//Add: DataSum
+	dataSum_AWB_5K = accumulation(e_ctrl, AWB_5100K_START_ADDR, AWB_5100K_END_ADDR);
+	dataSum_LSC_5K = accumulation(e_ctrl, LSC_5100K_START_ADDR, LSC_5100K_END_ADDR);
+
+	dataSum_AWB_5K &= 0x0000FFFF;
+	dataSum_LSC_5K &= 0x0000FFFF;
+
+	//Get: CheckSum
+	checkSum_AWB_5K = shiftedSum(e_ctrl, AWB_5100K_CHECKSUM_LSB, AWB_5100K_CHECKSUM_MSB, LittleEndian);
+	checkSum_LSC_5K = shiftedSum(e_ctrl, LSC_5100K_CHECKSUM_LSB, LSC_5100K_CHECKSUM_MSB, LittleEndian);
+
+	pr_err("[CHECK][BEFORE] e_ctrl->is_supported: %X\n", e_ctrl->is_supported);
+
+	//Check#1: AWB 5K Part
+	if (dataSum_AWB_5K == checkSum_AWB_5K) {
+		pr_err("[CHECK] AWB 5K Data Valid\n");
+		e_ctrl->is_supported |= 0x10;
+	}
+	else {
+		pr_err("[CHECK][FAIL] dataSum_AWB_5K = %d, checkSum_AWB_5K = %d\n",
+				dataSum_AWB_5K, checkSum_AWB_5K);
+	}
+
+	//Check#3: LSC 5K Part
+	if (dataSum_LSC_5K == checkSum_LSC_5K) {
+		pr_err("[CHECK] LSC 5K Data Valid\n");
+		e_ctrl->is_supported |= 0x20;
+	}
+	else {
+		pr_err("[CHECK][FAIL] dataSum_LSC_5K = %d, checkSum_LSC_5K = %d\n",
+				dataSum_LSC_5K, checkSum_LSC_5K);
+	}
+
+	pr_err("[CHECK][AFTER] e_ctrl->is_supported: %X\n", e_ctrl->is_supported);
+
+	if(e_ctrl->is_supported == 0x30) { //All bits are On
+		pr_err("%s checksum succeed!\n", __func__);
+		rc = 0;
+	} else {
+		//each bit (in e_ctrl->is_supported) indicates the checksum results.
+	}
+
+	return rc;
+}
+
+int32_t msm_eeprom_checksum_lgit_mn34153(struct msm_eeprom_ctrl_t *e_ctrl) {
+	uint16_t awb_5k = 0, awb_5k_checksum = 0;
+	uint16_t lsc_5k = 0, lsc_5k_checksum = 0;
+	uint16_t awb_3k = 0, awb_3k_checksum = 0;
+	uint16_t lsc_4k = 0, lsc_4k_checksum = 0;
+	int32_t rc = -EFAULT;
+	int i;
+
+	for(i = 0x0; i < 0x6; i++) {
+		awb_5k += e_ctrl->cal_data.mapdata[i];
+	}
+	awb_5k_checksum = (e_ctrl->cal_data.mapdata[0x7] << 8) |
+		e_ctrl->cal_data.mapdata[0x6];
+
+	for(i = 0xC; i < 0x380; i++) {
+		lsc_5k += e_ctrl->cal_data.mapdata[i];
+	}
+	lsc_5k_checksum = (e_ctrl->cal_data.mapdata[0x381] << 8) |
+		e_ctrl->cal_data.mapdata[0x380];
+
+	for(i = 0x382; i < 0x388; i++) {
+		awb_3k += e_ctrl->cal_data.mapdata[i];
+	}
+	awb_3k_checksum = (e_ctrl->cal_data.mapdata[0x389] << 8) |
+		e_ctrl->cal_data.mapdata[0x388];
+
+	for(i = 0x38A; i < 0x6FE; i++) {
+		lsc_4k += e_ctrl->cal_data.mapdata[i];
+	}
+	lsc_4k_checksum = (e_ctrl->cal_data.mapdata[0x6FF] << 8) |
+		e_ctrl->cal_data.mapdata[0x6FE];
+
+	/* LGE_CHANGE_S, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
+	if(!awb_5k_checksum || !awb_3k_checksum || !lsc_5k_checksum || !lsc_4k_checksum){
+		//Data does NOT exist
+		pr_err("%s EEPROM CRC Data does NOT exist!\n", __func__);
+		return rc;
+	}
+	/* LGE_CHANGE_E, Add CRC check code for AAT camera, 2016-02-24, joongeun.choi@lge.com */
+
+	if( awb_5k == awb_5k_checksum &&
+		lsc_5k == lsc_5k_checksum &&
+		awb_3k == awb_3k_checksum &&
+		lsc_4k == lsc_4k_checksum) {
+		pr_info("EEPROM data verified\n");
+		rc = 0;
+	} else {
+		pr_err("awb_5k = 0x%x, awb_5k_checksum = 0x%x, "
+			"lsc_5k = 0x%x, lsc_5k_checksum = 0x%x, "
+			"awb_3k = 0x%x, awb_3k_checksum = 0x%x, "
+			"lsc_4k = 0x%x, lsc_4k_checksum = 0x%x\n",
+			awb_5k, awb_5k_checksum, lsc_5k, lsc_5k_checksum,
+			awb_3k, awb_3k_checksum, lsc_4k, lsc_4k_checksum);
+	}
+	return rc;
+}

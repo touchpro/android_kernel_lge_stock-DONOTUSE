@@ -2844,7 +2844,8 @@ static ssize_t pattern_id_store(struct device *dev,
 					led->ptrn_id, lg_led_patterns[led->ptrn_id].brightness_val, lg_led_patterns[led->ptrn_id].period_in_msec);
 
 	switch (pattern_id) {
-#if defined(CONFIG_MACH_MSM8916_STYLUSC_SPR_US) || defined(CONFIG_MACH_MSM8916_C90NAS_SPR_US) || defined(CONFIG_MACH_MSM8916_PH1_VZW) || defined(CONFIG_MACH_MSM8916_PH1_SPR_US) || defined(CONFIG_MACH_MSM8916_PH1_CRK_US) || defined(CONFIG_MACH_MSM8916_PH1_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_PH1_KR)
+#if defined(CONFIG_MACH_MSM8916_STYLUSC_SPR_US) || defined(CONFIG_MACH_MSM8916_C90NAS_SPR_US) || \
+            defined(CONFIG_MACH_MSM8916_PH1_SPR_US)
 		case ID_MISSED_NOTI_ONCE:
 		case ID_LCD_ON:
 		case ID_FAILED_CHECKPASSWORD:

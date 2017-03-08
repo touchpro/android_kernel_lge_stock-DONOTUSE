@@ -70,7 +70,7 @@ static struct msm_sensor_power_setting ov8858_power_setting[] = {
 		.delay = 0,
 	},
 };
-#elif defined(CONFIG_LGE_G4STYLUS_CAMERA)
+#elif defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_PH1_CAMERA)
 static struct msm_sensor_power_setting ov8858_power_setting[] = {
 	{
 		.seq_type = SENSOR_VREG,
@@ -163,6 +163,46 @@ static struct msm_sensor_power_setting ov8858_power_setting[] = {
 		.delay = 1,
 	},
 };
+#elif defined(CONFIG_LGE_K5_CAMERA)
+static struct msm_sensor_power_setting ov8858_power_setting[] = {
+	{
+		.seq_type = SENSOR_GPIO,
+		.seq_val = SENSOR_GPIO_VIO,
+		.config_val = GPIO_OUT_HIGH,
+		.delay = 0,
+	},
+	{
+		.seq_type = SENSOR_VREG,
+		.seq_val = CAM_VANA,
+		.config_val = 0,
+		.delay = 0,
+	},
+	{
+		.seq_type = SENSOR_GPIO,
+		.seq_val = SENSOR_GPIO_VDIG,
+		.config_val = GPIO_OUT_HIGH,
+		.delay = 0,
+	},
+	{
+		.seq_type = SENSOR_GPIO,
+		.seq_val = SENSOR_GPIO_RESET, //-----> CIS_XSD
+		.config_val = GPIO_OUT_HIGH,
+		.delay = 1,
+	},
+	{
+		.seq_type = SENSOR_CLK,
+		.seq_val = SENSOR_CAM_MCLK,
+		.config_val = 23880000,
+		.delay = 2,
+	},
+	{
+		.seq_type = SENSOR_I2C_MUX,
+		.seq_val = 0,
+		.config_val = 0,
+		.delay = 0,
+	},
+};
+
 #else
 static struct msm_sensor_power_setting ov8858_power_setting[] = {
 #ifndef CONFIG_MACH_MSM8939_M239DS_GLOBAL_COM

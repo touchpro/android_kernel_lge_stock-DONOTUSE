@@ -44,7 +44,7 @@
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
 #include <linux/delay.h>
 #endif
 
@@ -2169,7 +2169,7 @@ void usb_hcd_resume_root_hub (struct usb_hcd *hcd)
 {
 	unsigned long flags;
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
 	mdelay(50);
 #endif
 	spin_lock_irqsave (&hcd_root_hub_lock, flags);

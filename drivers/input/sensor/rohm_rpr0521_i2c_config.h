@@ -48,8 +48,8 @@
 #define PS_ALS_SET_INTR           (PS_THH_BOTH_OUTSIDE | POLA_ACTIVEL | OUTPUT_LATCH | MODE_BOTH)
 #define PS_ALS_SET_PS_TH          (16)
 #define PS_ALS_SET_PS_TL          (4)
-#define PS_ALS_SET_ALS_TH         (0x004b)
-#define PS_ALS_SET_ALS_TL         (0x0000)
+#define PS_ALS_SET_ALS_TH         (0x0048)
+#define PS_ALS_SET_ALS_TL         (0x0044)
 #define PS_ALS_SET_MIN_DELAY_TIME (125)
 
 #define COEFFICIENT               (4)

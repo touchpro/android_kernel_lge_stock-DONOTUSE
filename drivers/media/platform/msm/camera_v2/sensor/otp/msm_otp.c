@@ -176,6 +176,27 @@ static int otp_config_read_cal_data(struct msm_otp_ctrl_t *o_ctrl,
 	return rc;
 }
 
+/*LGE_CHANGE_S, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
+static int msm_otp_write_data(struct msm_otp_ctrl_t *o_ctrl)
+{
+	int rc = 0;
+
+	if(!o_ctrl->otp_read) {
+		pr_err("%s data is not prepared\n", __func__);
+		return rc;
+	}
+	
+	if(o_ctrl->otp_func->otp_write) {
+		rc = o_ctrl->otp_func->otp_write(o_ctrl);
+		if(rc < 0) {
+			pr_err("%s otp write failed\n", __func__);
+			rc = -ENODEV;
+		}
+       }
+       return rc;
+}
+/*LGE_CHANGE_E, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
+
 static int msm_otp_prepare_data(struct msm_otp_ctrl_t *o_ctrl)
 {
 	struct msm_camera_power_ctrl_t *power_info =
@@ -299,6 +320,12 @@ static int msm_otp_config(struct msm_otp_ctrl_t *o_ctrl,
 		CDBG("%s E CFG_OTP_GET_MM_INFO\n", __func__);
 		rc = msm_otp_get_cmm_data(o_ctrl, cdata);
 		break;
+/*LGE_CHANGE_S, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
+      case CFG_OTP_WRITE_DATA:
+             CDBG("%s E CFG_OTP_WRITE_DATA\n", __func__);
+		rc = msm_otp_write_data(o_ctrl);
+		break;
+/*LGE_CHANGE_E, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
 	default:
 		break;
 	}

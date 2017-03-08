@@ -81,13 +81,21 @@ static struct pm8xxx_cradle *cradle;
 	defined(CONFIG_MACH_MSM8916_PH1_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_PH1_KR) || defined(CONFIG_MACH_MSM8916_PH1_CRK_US) || \
     defined(CONFIG_MACH_MSM8916_K5)
 #if defined(CONFIG_TOUCHSCREEN_ATMEL_S540) || defined(CONFIG_TOUCHSCREEN_ATMEL_T1664) || defined(CONFIG_TOUCHSCREEN_LGE_SYNAPTICS_TD4191) || \
-	defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300) || defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_PH1) || defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1)
+	defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300) || defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_PH1) || defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1) || \
+	defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
 static int is_smart_cover_closed = 0; /* check status of smart cover to resize quick window area */
 int cradle_smart_cover_status(void)
 {
 	return is_smart_cover_closed;
 }
 #endif
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1)
+extern void MIT300_Set_BootCoverMode(int status);
+#endif
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+extern void TD4100_Set_BootCoverMode(int status);
+#endif
+
 #endif
 static void boot_cradle_det_func(void)
 {
@@ -130,6 +138,15 @@ static void boot_cradle_det_func(void)
 	cradle->pen_state = pen_state;
 	wake_lock_timeout(&cradle->wake_lock, msecs_to_jiffies(3000));
 	switch_set_state(&cradle->pen_sdev, cradle->pen_state);
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1)
+	is_smart_cover_closed = cradle->pouch;
+	MIT300_Set_BootCoverMode(cradle->pouch);
+#endif
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+	is_smart_cover_closed = cradle->pouch;
+	TD4100_Set_BootCoverMode(cradle->pouch);
+#endif
+
 #else
 	if(cradle->pouch == 1)
 		state = SMARTCOVER_POUCH_CLOSED;
@@ -142,7 +159,7 @@ static void boot_cradle_det_func(void)
 	wake_lock_timeout(&cradle->wake_lock, msecs_to_jiffies(3000));
 	switch_set_state(&cradle->sdev, cradle->state);
 
-#if defined(CONFIG_TOUCHSCREEN_LGE_SYNAPTICS_TD4191) || defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1)
+#if defined(CONFIG_TOUCHSCREEN_LGE_SYNAPTICS_TD4191)
 	is_smart_cover_closed = cradle->pouch;
 #endif
 #endif
@@ -221,7 +238,7 @@ static void pm8xxx_pouch_work_func(struct work_struct *work)
 		printk("%s : [Cradle] pouch value is %d (no change)\n", __func__ , state);
 	}
 #if defined(CONFIG_MACH_MSM8926_B2LN_KR) || defined(CONFIG_MACH_MSM8939_ALTEV2_VZW) || defined(CONFIG_MACH_MSM8939_P1B_GLOBAL_COM) || defined(CONFIG_MACH_MSM8939_P1BC_SPR_US) || defined(CONFIG_MACH_MSM8939_P1BSSN_SKT_KR) || defined(CONFIG_MACH_MSM8939_P1BSSN_BELL_CA) || defined(CONFIG_MACH_MSM8939_PH2_GLOBAL_COM)
-#if defined(CONFIG_TOUCHSCREEN_ATMEL_S540) || defined(CONFIG_TOUCHSCREEN_ATMEL_T1664) || defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1)
+#if defined(CONFIG_TOUCHSCREEN_ATMEL_S540) || defined(CONFIG_TOUCHSCREEN_ATMEL_T1664)
 	is_smart_cover_closed = state;
 #endif
 #endif
@@ -238,8 +255,7 @@ void cradle_set_deskdock(int state)
 			spin_unlock_irqrestore(&cradle->lock, flags);
 			wake_lock_timeout(&cradle->wake_lock, msecs_to_jiffies(3000));
 			switch_set_state(&cradle->sdev, cradle->state);
-		}
-		else {
+		} else {
 			spin_unlock_irqrestore(&cradle->lock, flags);
 		}
 	} else {
@@ -280,9 +296,14 @@ static irqreturn_t pm8xxx_pouch_irq_handler(int irq, void *handle)
 	defined(CONFIG_MACH_MSM8939_PH2_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_PH1_SPR_US) || \
 	defined(CONFIG_MACH_MSM8916_PH1_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_PH1_KR) || \
     defined(CONFIG_MACH_MSM8916_K5) || defined(CONFIG_MACH_MSM8916_PH1_CRK_US)
-#if defined(CONFIG_TOUCHSCREEN_LGE_SYNAPTICS_TD4191) || defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1)
+#if defined(CONFIG_TOUCHSCREEN_LGE_SYNAPTICS_TD4191) || defined(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1) || \
+	defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
 	is_smart_cover_closed = !gpio_get_value(cradle->pdata->hallic_pouch_detect_pin);
+#if defined(CONFIG_MACH_MSM8916_PH1)
+	v = 2;
+#else
 	v = 1 + 1*is_smart_cover_closed;
+#endif
 #else
 	v = 1 + 1*(!gpio_get_value(cradle->pdata->hallic_pouch_detect_pin));
 #endif

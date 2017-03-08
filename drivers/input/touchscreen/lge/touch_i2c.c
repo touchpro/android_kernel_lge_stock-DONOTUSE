@@ -11,19 +11,27 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the¬
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  */
+#define TS_MODULE "[i2c]"
+
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
-#include "touch_hwif.h"
-#include "touch_core.h"
-#include "touch_i2c.h"
+#include <linux/delay.h>
+
+/*
+ *  Include to touch core Header File
+ */
+#include <touch_core.h>
+#include <touch_hwif.h>
+#include <touch_i2c.h>
 
 int touch_i2c_read(struct i2c_client *client, struct touch_bus_msg *msg)
 {
+	int ret;
 	struct i2c_msg msgs[] = {
 		{
 			.addr = client->addr,
@@ -65,7 +73,20 @@ int touch_i2c_read(struct i2c_client *client, struct touch_bus_msg *msg)
 		}
 	}
 #endif
-	return i2c_transfer(client->adapter, msgs, 2);
+
+	ret = i2c_transfer(client->adapter, &msgs[0], 1);
+	ret += i2c_transfer(client->adapter, &msgs[1], 1);
+
+	if (ret == ARRAY_SIZE(msgs)) {
+		return 0;
+	} else if (ret < 0) {
+		TOUCH_E("i2c_transfer - errno[%d]\n", ret);
+	} else if (ret != ARRAY_SIZE(msgs)) {
+        TOUCH_E("i2c_transfer - size[%d] result[%d]\n", (int) ARRAY_SIZE(msgs), ret);
+	} else {
+		TOUCH_E("unknown error [%d]\n", ret);
+	}
+	return ret;
 
 }
 
@@ -200,10 +221,10 @@ static int touch_i2c_pm_resume(struct device *dev)
 
 	if (atomic_read(&ts->state.pm) == DEV_PM_SUSPEND_IRQ) {
 		atomic_set(&ts->state.pm, DEV_PM_RESUME);
+		TOUCH_I("%s : DEV_PM_RESUME0\n", __func__);
 		touch_set_irq_pending(ts->irq);
 		touch_resend_irq(ts->irq);
-		TOUCH_I("%s : DEV_PM_RESUME\n", __func__);
-		return 0;
+            return 0;
 	}
 
 	atomic_set(&ts->state.pm, DEV_PM_RESUME);

@@ -60,6 +60,12 @@ static struct of_device_id Mit300_MatchTable[] = {
 	{ },
 };
 
+#if defined (CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+static struct of_device_id td4100_MatchTable[] = {
+    { .compatible = "unified_driver4,td4100", },
+	{ },
+};
+#endif
 #else
 
 #error "Model should be defined"
@@ -124,6 +130,10 @@ struct of_device_id * TouchGetDeviceMatchTable(int index)
     #elif defined ( TOUCH_MODEL_M2 ) || defined ( TOUCH_MODEL_PH1 )
     if (index == FIRST_MODULE)
 		match_table = Mit300_MatchTable;
+	#if defined (CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+	else if (index == SECOND_MODULE)
+		match_table = td4100_MatchTable;
+	#endif
 	#else
 	#error "Model should be defined"
 	#endif

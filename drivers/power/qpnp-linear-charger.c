@@ -292,6 +292,9 @@ static enum power_supply_property msm_batt_power_props[] = {
 #ifdef CONFIG_LGE_PM_USB_CURRENT_MAX
 	POWER_SUPPLY_PROP_USB_CURRENT_MAX,
 #endif
+#ifdef CONFIG_LGE_PM_LLK_MODE
+	POWER_SUPPLY_PROP_STORE_DEMO_ENABLED,
+#endif
 };
 
 static char *pm_batt_supplied_to[] = {
@@ -547,12 +550,10 @@ extern struct pseudo_batt_info_type pseudo_batt_info;
 	|| defined(CONFIG_MACH_MSM8939_P1BSSN_BELL_CA) \
 	|| defined(CONFIG_MACH_MSM8939_PH2_GLOBAL_COM)
 #define PSEUDO_BATT_MAX 900
-#else
-#ifdef CONFIG_MACH_MSM8939_P1BSSN_SKT_KR
+#elif defined(CONFIG_MACH_MSM8939_P1BSSN_SKT_KR)
 #define PSEUDO_BATT_MAX 810
 #else
 #define PSEUDO_BATT_MAX 720
-#endif
 #endif
 #endif
 
@@ -561,6 +562,8 @@ extern struct pseudo_batt_info_type pseudo_batt_info;
 	|| defined(CONFIG_MACH_MSM8939_P1BSSN_VTR_CA) \
 	|| defined(CONFIG_MACH_MSM8939_P1BSSN_BELL_CA)
 #define USB_CURRENT_MAX 900
+#elif defined(CONFIG_MACH_MSM8916_K5)
+#define USB_CURRENT_MAX 720
 #else
 #define USB_CURRENT_MAX 810
 #endif
@@ -949,6 +952,7 @@ static int qpnp_lbc_charger_enable(struct qpnp_lbc_chip *chip, int reason,
 	disabled = chip->charger_disabled;
 	chg_disabled = chip->charger_disabled;
 #endif
+
 #ifdef CONFIG_LGE_PM_FACTORY_CABLE
 	batt_present = qpnp_lbc_is_batt_present(chip);
 
@@ -1353,6 +1357,7 @@ static int qpnp_lbc_ibatsafe_set(struct qpnp_lbc_chip *chip, int safe_current)
 #define QPNP_LBC_IBATMAX_MIN	90
 #define QPNP_LBC_IBATMAX_MAX	1440
 #ifdef CONFIG_LGE_PM_FACTORY_CABLE
+#define INPUT_CURRENT_LIMIT_FACTORY_EMBEDDED 1000
 #define INPUT_CURRENT_LIMIT_FACTORY 1500
 #define INPUT_CURRENT_LIMIT_USB20   500
 #define INPUT_CURRENT_LIMIT_USB30   900
@@ -1380,8 +1385,17 @@ static int qpnp_lbc_ibatmax_set(struct qpnp_lbc_chip *chip, int chg_current)
 			chg_current = INPUT_CURRENT_LIMIT_USB20;
 #endif
 		} else {
-			pr_info("factory cable detected iBat 1500mA\n");
-			chg_current = INPUT_CURRENT_LIMIT_FACTORY;
+#if defined(CONFIG_MACH_MSM8916_K5)
+			if(qpnp_lbc_is_batt_present(chip)) {
+				pr_info("factory cable detected iBat 1000mA\n");
+				chg_current = INPUT_CURRENT_LIMIT_FACTORY_EMBEDDED;
+			}
+			else
+#endif
+			{
+				pr_info("factory cable detected iBat 1500mA\n");
+				chg_current = INPUT_CURRENT_LIMIT_FACTORY;
+			}
 		}
 	}
 #endif
@@ -1399,7 +1413,7 @@ static int qpnp_lbc_ibatmax_set(struct qpnp_lbc_chip *chip, int chg_current)
 #ifdef CONFIG_LGE_PM_USB_CURRENT_MAX
 		if(usb_current_max_enabled){
 			if (chip->usb_present && chg_current > QPNP_CHG_I_MAX_MIN_90) {
-				pr_info("USB Current Max set charging current to %d(mA)\n", PSEUDO_BATT_MAX);
+				pr_info("USB Current Max set charging current to %d(mA)\n", USB_CURRENT_MAX);
 				chg_current = USB_CURRENT_MAX;
 				chip->usb_psy_ma = chg_current;
 			}
@@ -4312,8 +4326,15 @@ static void qpnp_lbc_monitor_batt_temp(struct work_struct *work)
 		schedule_delayed_work(&chip->battemp_work,
 			MONITOR_BATTEMP_POLLING_PERIOD);
 #else
-	schedule_delayed_work(&chip->battemp_work,
-		MONITOR_BATTEMP_POLLING_PERIOD);
+	if ((res.state == CHG_BATT_DECCUR_STATE) || res.state == CHG_BATT_WARNIG_STATE)
+		schedule_delayed_work(&chip->battemp_work,
+			MONITOR_BATTEMP_POLLING_PERIOD / 3);
+	else if ((res.state == CHG_BATT_STPCHG_STATE) || req.batt_temp <= 0)
+		schedule_delayed_work(&chip->battemp_work,
+			MONITOR_BATTEMP_POLLING_PERIOD / 6);
+	else
+		schedule_delayed_work(&chip->battemp_work,
+			MONITOR_BATTEMP_POLLING_PERIOD);
 #endif
 }
 #endif
@@ -4422,11 +4443,13 @@ EXPORT_SYMBOL(qpnp_pwr_key_action_set_for_chg_logo);
 #endif
 
 #ifdef CONFIG_USB_EMBEDDED_BATTERY_REBOOT
+#ifdef CONFIG_MACH_MSM8916_K5  //because multiple def error from c100 model
 int lge_get_sbl_cable_type(void)
 {
 	return cable_type;
 }
 EXPORT_SYMBOL(lge_get_sbl_cable_type);
+#endif
 #endif
 
 static void qpnp_lbc_collapsible_detection_work(struct work_struct *work)
@@ -4852,8 +4875,22 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 		chip->batt_psy.properties = msm_batt_power_props;
 		chip->batt_psy.num_properties =
 			ARRAY_SIZE(msm_batt_power_props);
+#ifdef CONFIG_LGE_PM_LLK_MODE
+	{
+		int qpnp_batt_power_get_property_lge(struct power_supply *psy,
+		       enum power_supply_property psp,
+		       union power_supply_propval *val);
+		int qpnp_batt_power_set_property_lge(struct power_supply *psy,
+			enum power_supply_property psp,
+			const union power_supply_propval *val);
+
+		chip->batt_psy.get_property = qpnp_batt_power_get_property_lge;
+		chip->batt_psy.set_property = qpnp_batt_power_set_property_lge;
+	}
+#else
 		chip->batt_psy.get_property = qpnp_batt_power_get_property;
 		chip->batt_psy.set_property = qpnp_batt_power_set_property;
+#endif
 		chip->batt_psy.property_is_writeable =
 			qpnp_batt_property_is_writeable;
 		chip->batt_psy.external_power_changed =
@@ -4998,7 +5035,12 @@ static int qpnp_lbc_main_probe(struct spmi_device *spmi)
 	wake_lock_init(&chip->chg_fail_irq_wake_lock, WAKE_LOCK_SUSPEND, "qpnp_lbc_chg_fail_irq");
 #endif
 
-
+#ifdef CONFIG_LGE_PM_LLK_MODE
+{
+	void qpnp_lbc_main_probe_lge(struct spmi_device *spmi);
+	qpnp_lbc_main_probe_lge(spmi);
+}
+#endif
 	chip->debug_root = debugfs_create_dir("qpnp_lbc", NULL);
 	if (!chip->debug_root)
 		pr_err("Couldn't create debug dir\n");
@@ -5151,4 +5193,8 @@ module_exit(qpnp_lbc_exit);
 MODULE_DESCRIPTION("QPNP Linear charger driver");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:" QPNP_CHARGER_DEV_NAME);
+
+#ifdef CONFIG_LGE_PM_LLK_MODE
+#include "lge/qpnp-linear-charger-lge.c"
+#endif
 

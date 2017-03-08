@@ -14,15 +14,6 @@ config TOUCHSCREEN_MELFAS_MIT300
 
           To compile this driver as a module, choose M here: the module will be called mip4_ts.
 
-config TOUCHSCREEN_MELFAS_MIT300_P1S_SD
-	bool "MELFAS MIT300 Touchscreen"
-	depends on TOUCHSCREEN_MELFAS_MIT300
-	default n
-	help
-	  Say Y here if you have a MELFAS MIT300 touchscreen device based on ts_core in your system.
-	  If unsure, say N.
-	  To compile this driver as a module, choose M here: the module will be called mip4_ts.
-
 config TOUCHSCREEN_MELFAS_MIT300_PH1
 	tristate "MELFAS MIT300 Touchscreen"
         depends on I2C

@@ -275,7 +275,7 @@ typedef enum {
 	})
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 typedef enum vzw_chg_state {
 	VZW_NO_CHARGER,
 	VZW_NORMAL_CHARGING,
@@ -362,11 +362,14 @@ struct bq24296_chip {
 	struct delayed_work check_suspended_work;
 	bool suspend;
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	chg_state		vzw_chg_mode;
 	unsigned int	adc_sum;
 	int			usbin_ref_count_vzw;
 	int 		input_i_limit;
+#endif
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	int vzw_batt_cycle;
 #endif
 	bool batt_present;
 #if defined(CONFIG_LGE_PM_LLK_MODE)
@@ -425,6 +428,9 @@ static int bq24296_set_adjust_ibat(struct bq24296_chip *chip, int ma);
 static int bq24296_get_adjust_ibat(struct bq24296_chip *chip, int *mv);
 static int bq24296_get_force_ichg_decrease(struct bq24296_chip *chip, int *enable);
 static int bq24296_get_prop_batt_temp(struct bq24296_chip *chip);
+#ifdef CONFIG_LGE_PM_THERMALE_BACKLIGHT_CHG_CONTROL
+int get_backlight_state(void);
+#endif
 /* end of pre-define */
 
 static unsigned int cable_type;
@@ -544,7 +550,7 @@ static void bq24296_reginfo(struct bq24296_chip *chip)
 }
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 static int bq24296_get_en_hiz(struct bq24296_chip *chip, bool *enable)
 {
 	int ret;
@@ -642,7 +648,7 @@ static int bq24296_set_input_i_limit(struct bq24296_chip *chip, int ma)
 				BQ00_INPUT_SRC_CONT_REG, IINLIM_MASK, 0x06);
 		}
 	}
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	if (chip->usb_psy->is_floated_charger) {
 		pr_info("IUSB limit %dmA due to the floated charger\n",
 				INPUT_CURRENT_LIMIT_USB20);
@@ -915,7 +921,6 @@ static int bq24296_set_chg_timer(struct bq24296_chip *chip, bool enable)
 	return 0;
 }
 
-#if !defined(CONFIG_LGE_PM_CHARGING_PAD)
 #define CHG_TIMEOUT_SHIFT 1
 static int bq24296_set_chg_timeout(struct bq24296_chip *chip)
 {
@@ -931,7 +936,6 @@ static int bq24296_set_chg_timeout(struct bq24296_chip *chip)
 	return bq24296_masked_write(chip->client, BQ05_CHARGE_TERM_TIMER_CONT_REG,
 			CHG_TIMER_MASK, reg_val);
 }
-#endif
 
 #define EN_CHG_TERM_SHIFT 7
 static int bq24296_set_chg_term(struct bq24296_chip *chip, bool enable)
@@ -1281,7 +1285,7 @@ static void bq24296_irq_worker(struct work_struct *work)
 	/* temporary debug for interrupts */
 	pr_err("%s : occured\n", __func__);
 	NULL_CHECK_VOID(chip);
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	if (bq24296_is_en_hiz(chip))
 		bq24296_set_en_hiz(chip, false);
 #endif
@@ -1528,8 +1532,11 @@ static enum power_supply_property bq24296_batt_power_props[] = {
 	POWER_SUPPLY_PROP_BATTERY_ID_CHECKER,
 	POWER_SUPPLY_PROP_VALID_BATT,
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	POWER_SUPPLY_PROP_VZW_CHG,
+#endif
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	POWER_SUPPLY_PROP_VZW_BATTERY_CYCLE,
 #endif
 #ifdef CONFIG_LGE_PM_FACTORY_TESTMODE
 	POWER_SUPPLY_PROP_HW_REV,
@@ -1925,7 +1932,12 @@ static int bq24296_batt_power_get_property(struct power_supply *psy,
 			val->intval = chip->batt_id_smem;
 		break;
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	case POWER_SUPPLY_PROP_VZW_BATTERY_CYCLE:
+		val->intval = chip->vzw_batt_cycle;
+		break;
+#endif
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	case POWER_SUPPLY_PROP_VZW_CHG:
 		val->intval = chip->vzw_chg_mode;
 		break;
@@ -1987,7 +1999,7 @@ static int bq24296_batt_power_set_property(struct power_supply *psy,
 		 */
 		break;
 #endif
-#if defined CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ
+#if defined CONFIG_LGE_PM_FLOATED_CHARGER
 	case POWER_SUPPLY_PROP_VZW_CHG:
 		#define vzw_max_lmt (500)
 		#define vzw_cc (400)
@@ -2000,6 +2012,11 @@ static int bq24296_batt_power_set_property(struct power_supply *psy,
 
 		#undef vzw_max_lmt
 		#undef vzw_cc
+		break;
+#endif
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	case POWER_SUPPLY_PROP_VZW_BATTERY_CYCLE:
+		chip->vzw_batt_cycle = val->intval;
 		break;
 #endif
 #if defined(CONFIG_LGE_PM_LLK_MODE)
@@ -2030,7 +2047,10 @@ bq24296_batt_power_property_is_writeable(struct power_supply *psy,
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 #ifndef CONFIG_LGE_PM
-        case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
+	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
+#endif
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	case POWER_SUPPLY_PROP_VZW_BATTERY_CYCLE:
 #endif
 		return 1;
 	default:
@@ -2190,7 +2210,7 @@ static void bq24296_decide_otg_mode(struct bq24296_chip *chip)
 }
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 
 /* ADC_TO_IINMAX: IINMAX = (1V/RILIM) x KLIM
  * VZW_UNDER_CURRENT_CHARGING_MA: Threshold current level
@@ -2267,7 +2287,7 @@ static void bq24296_batt_external_power_changed(struct power_supply *psy)
 #if defined(CONFIG_CHARGER_UNIFIED_WLC)
 	union power_supply_propval wlc_ret = {0,};
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	int input_i_limit = 0;
 #endif
 	int	busy_wait = 20;
@@ -2296,7 +2316,7 @@ static void bq24296_batt_external_power_changed(struct power_supply *psy)
 	bq24296_charger_psy_getprop(chip, usb_psy, CURRENT_MAX, &ret);
 
 	ret.intval = ret.intval / 1000; /* dwc3 treats uA */
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	input_i_limit = ret.intval;
 #endif
 	pr_err("dwc3 result=%dmA\n", ret.intval);
@@ -2376,7 +2396,7 @@ static void bq24296_batt_external_power_changed(struct power_supply *psy)
 	}
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	bq24296_charger_psy_getprop(chip, usb_psy, ONLINE, &ret);
 	if ((chip->input_i_limit ^ input_i_limit) || !ret.intval) {
 		chip->input_i_limit = input_i_limit;
@@ -2925,7 +2945,9 @@ bq24296_set_thermal_chg_current_set(const char *val, struct kernel_param *kp)
 module_param_call(bq24296_thermal_mitigation, bq24296_set_thermal_chg_current_set,
 	param_get_uint, &bq24296_thermal_mitigation, 0644);
 
-
+#ifdef CONFIG_LGE_PM_THERMALE_BACKLIGHT_CHG_CONTROL
+#define IBAT_BL_MA 1024
+#endif
 static int temp_before;
 static void bq24296_monitor_batt_temp(struct work_struct *work)
 {
@@ -2957,7 +2979,11 @@ static void bq24296_monitor_batt_temp(struct work_struct *work)
 
 	chip->batt_psy.get_property(&(chip->batt_psy),
 			  POWER_SUPPLY_PROP_TEMP, &ret);
+#ifdef CONFIG_MACH_MSM8939_ALTEV2_VZW
+	req.batt_temp = ret.intval;
+#else
 	req.batt_temp = ret.intval / 10;
+#endif
 
 	/* caution!! Scale from mV to uV for lge_monitor_batt_temp() */
 	chip->batt_psy.get_property(&(chip->batt_psy),
@@ -2972,6 +2998,13 @@ static void bq24296_monitor_batt_temp(struct work_struct *work)
 	bq24296_thermal_mitigation = chip->chg_current_ma;
 	req.chg_current_ma = chip->chg_current_ma;
 	req.chg_current_te = chip->chg_current_te;
+#ifdef CONFIG_LGE_PM_THERMALE_BACKLIGHT_CHG_CONTROL
+	if((chip->chg_current_te < DC_IUSB_CURRENT) && !get_backlight_state())
+	{
+		req.chg_current_te = IBAT_BL_MA;
+		pr_info("backlight_off charging current set = %d\n", req.chg_current_te);
+	}
+#endif
 
 #if defined(CONFIG_CHARGER_UNIFIED_WLC)
 	bq24296_charger_psy_getprop_event(chip, wlc_psy, WIRELESS_ONLINE,
@@ -3274,13 +3307,11 @@ static int bq24296_hw_init(struct bq24296_chip *chip)
 		pr_err("failed to enable chg safety timer\n");
 		return ret;
 	}
-#if !defined(CONFIG_LGE_PM_CHARGING_PAD)
 	ret = bq24296_set_chg_timeout(chip);
 	if (ret) {
 		pr_err("Failed to set CHG_TIMEOUT rc=%d\n", ret);
 		return ret;
 	}
-#endif
 #else
 	ret = bq24296_set_chg_term(chip, 1);
 	if (ret) {
@@ -3293,15 +3324,11 @@ static int bq24296_hw_init(struct bq24296_chip *chip)
 		pr_err("failed to enable chg safety timer\n");
 		return ret;
 	}
-#if !defined(CONFIG_LGE_PM_CHARGING_PAD)
 	ret = bq24296_set_chg_timeout(chip);
 	if (ret) {
 		pr_err("Failed to set CHG_TIMEOUT rc=%d\n", ret);
 		return ret;
 	}
-#else
-	pr_err("req_chg_timeout set_h = 12hrs\n");
-#endif
 #endif
 	return 0;
 }
@@ -3469,10 +3496,12 @@ static int bq24296_probe(struct i2c_client *client,
 
 	chip->client = client;
 	chip->batt_present = true;
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	chip->vzw_chg_mode = VZW_NO_CHARGER;
 #endif
-
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY_VZW_POWER_REQ
+	chip->vzw_batt_cycle = 0;
+#endif
 #if defined(CONFIG_LGE_PM_CHARGING_SUPPORT_PHIHONG)
 	chip->phihong = PHIHONG_NOT_VERIFIED;
 	init_completion(&chip->phihong_complete);
@@ -3598,7 +3627,7 @@ static int bq24296_probe(struct i2c_client *client,
 			bq24296_check_suspended_worker);
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	chip->usbin_ref_count_vzw = chip->adc_sum = 0;
 #endif
 	ret = switch_dev_register(&chip->batt_removed);

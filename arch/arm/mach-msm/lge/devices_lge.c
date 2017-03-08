@@ -22,6 +22,14 @@
 
 #define PROP_VAL_MAX_SIZE 50
 
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+int lg4895_revision;
+#else
+int db7400_cut;
+#endif
+#endif
+
 struct chg_cable_info_table {
 	int threshhold;
 	enum acc_cable_type type;
@@ -567,6 +575,37 @@ static int __init battery_information_setup(char *batt_info)
 __setup("lge.battid=", battery_information_setup);
 #endif
 
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+static int __init display_lg4895_setup(char *lg4895_cmd)
+{
+	sscanf(lg4895_cmd, "%d", &lg4895_revision);
+	return 1;
+}
+__setup("lge.lg4895_rev=", display_lg4895_setup);
+
+int lge_get_lg4895_revision(void)
+{
+	pr_info("[LCD] lg4895 revision is %d\n", lg4895_revision);
+	return lg4895_revision;
+}
+EXPORT_SYMBOL(lge_get_lg4895_revision);
+#else
+static int __init display_db7400_setup(char *db7400_cmd)
+{
+	sscanf(db7400_cmd, "%d", &db7400_cut);
+	return 1;
+}
+__setup("lge.db7400_cut=", display_db7400_setup);
+
+int lge_get_db7400_cut(void)
+{
+	pr_info("[LCD] DB7400 panel cut is %d\n", db7400_cut);
+	return db7400_cut;
+}
+#endif
+#endif
+
 static int __init board_revno_setup(char *rev_info)
 {
 	int i;
@@ -625,7 +664,7 @@ static int __init display_kcal_setup(char *kcal)
 __setup("lge.kcal=", display_kcal_setup);
 #endif
 
-#if defined(CONFIG_LGE_LCD_OFF_DIMMING) || defined (CONFIG_LGE_QSDL_SUPPORT)
+#if defined (CONFIG_LGE_QSDL_SUPPORT)
 static int lge_boot_reason = -1; /* undefined for error checking */
 static int __init lge_check_bootreason(char *reason)
 {
@@ -648,6 +687,32 @@ __setup("lge.bootreason=", lge_check_bootreason);
 int lge_get_bootreason(void)
 {
 	return lge_boot_reason;
+}
+#endif
+
+#if defined(CONFIG_LGE_LCD_OFF_DIMMING)
+static int lge_boot_reason_code = -1; /* undefined for error checking */
+static int __init lge_check_bootreasoncode(char *reason)
+{
+	int ret = 0;
+
+	/* handle corner case of kstrtoint */
+	if (!strcmp(reason, "0xffffffff")) {
+		lge_boot_reason_code = 0xffffffff;
+		return 1;
+	}
+	ret = kstrtoint(reason, 16, &lge_boot_reason_code);
+	if (!ret)
+		printk(KERN_INFO "LGE REBOOT REASON CODE: %x\n", lge_boot_reason_code);
+	else
+		printk(KERN_INFO "LGE REBOOT REASON CODE: Couldn't get bootreasoncode - %d\n",ret);
+	return 1;
+}
+__setup("lge.bootreasoncode=", lge_check_bootreasoncode);
+
+int lge_get_bootreasoncode(void)
+{
+	return lge_boot_reason_code;
 }
 #endif
 
@@ -714,10 +779,15 @@ int lge_get_factory_boot(void)
 }
 
 static enum lge_laf_mode_type lge_laf_mode = LGE_LAF_MODE_NORMAL;
+static enum lge_laf_mode_type lge_mid_mode = LGE_LAF_MODE_NORMAL;
 static int __init lge_laf_mode_init(char *s)
 {
-	if (strcmp(s, ""))
+	if (!strncmp(s, "MID", 3)) {
+		lge_mid_mode = LGE_LAF_MODE_MID;
+	}
+	if (strcmp(s, "") && strcmp(s, "MID")) {
 		lge_laf_mode = LGE_LAF_MODE_LAF;
+	}
 	return 1;
 }
 __setup("androidboot.laf=", lge_laf_mode_init);
@@ -748,7 +818,10 @@ enum lge_laf_mode_type lge_get_laf_mode(void)
 {
 	return lge_laf_mode;
 }
-
+enum lge_laf_mode_type lge_get_mid_mode(void)
+{
+	return lge_mid_mode;
+}
 static bool is_mfts_mode = 0;
 static int __init lge_mfts_mode_init(char *s)
 {

@@ -24,7 +24,7 @@
 #include <linux/wakelock.h>
 
 /* Block the LCD DSV ctrl for sunlight knock on issue */
-#define TOUCH_USE_DSV
+//#define TOUCH_USE_DSV
 
 #define POWER_FW_UP_LOCK	0x01
 #define POWER_SYSFS_LOCK	0x02

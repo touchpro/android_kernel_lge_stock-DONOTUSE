@@ -26,6 +26,8 @@
 #include <linux/err.h>
 #include <linux/interrupt.h>
 
+#include <linux/seq_file.h>
+#include <linux/debugfs.h>
 #include <linux/types.h>
 #include <linux/file.h>
 #include <linux/device.h>
@@ -40,7 +42,8 @@
 #endif
 
 #if defined CONFIG_DEBUG_FS && defined CONFIG_LGE_USB_G_ANDROID
-#define CONFIG_LGE_USB_G_MTP_PROFILING
+// Fix it : ES1 migration
+//#define CONFIG_LGE_USB_G_MTP_PROFILING
 #endif
 
 #define MTP_BULK_BUFFER_SIZE       16384
@@ -74,6 +77,8 @@
 #define MTP_RESPONSE_OK             0x2001
 #define MTP_RESPONSE_DEVICE_BUSY    0x2019
 
+
+#define MAX_ITERATION		100
 #ifdef CONFIG_LGE_USB_G_ANDROID
 #define LG_MTP_RX_REQ_LEN	262144
 unsigned int mtp_rx_req_len = LG_MTP_RX_REQ_LEN;
@@ -162,6 +167,16 @@ struct mtp_dev {
 
 	} perf;
 #endif
+
+	struct {
+		unsigned long vfs_rbytes;
+		unsigned long vfs_wbytes;
+		unsigned vfs_rtime;
+		unsigned vfs_wtime;
+	} perf[MAX_ITERATION];
+	unsigned dbg_read_index;
+	unsigned dbg_write_index;
+	bool is_ptp;
 };
 
 static struct usb_interface_descriptor mtp_interface_desc = {
@@ -547,10 +562,12 @@ struct mtp_ext_config_desc_function {
 };
 
 /* MTP Extended Configuration Descriptor */
-struct {
+struct ext_mtp_desc {
 	struct mtp_ext_config_desc_header	header;
 	struct mtp_ext_config_desc_function    function;
-} mtp_ext_config_desc = {
+};
+
+struct ext_mtp_desc  mtp_ext_config_desc = {
 	.header = {
 		.dwLength = __constant_cpu_to_le32(sizeof(mtp_ext_config_desc)),
 		.bcdVersion = __constant_cpu_to_le16(0x0100),
@@ -564,16 +581,12 @@ struct {
 	},
 };
 
-/* PTP Extended Configuration Descriptor */
-struct {
-	struct mtp_ext_config_desc_header	header;
-	struct mtp_ext_config_desc_function    function;
-} ptp_ext_config_desc = {
+struct ext_mtp_desc ptp_ext_config_desc = {
 	.header = {
-		.dwLength = __constant_cpu_to_le32(sizeof(ptp_ext_config_desc)),
-		.bcdVersion = __constant_cpu_to_le16(0x0100),
-		.wIndex = __constant_cpu_to_le16(4),
-		.bCount = __constant_cpu_to_le16(1),
+		.dwLength = cpu_to_le32(sizeof(mtp_ext_config_desc)),
+		.bcdVersion = cpu_to_le16(0x0100),
+		.wIndex = cpu_to_le16(4),
+		.bCount = cpu_to_le16(1),
 	},
 	.function = {
 		.bFirstInterfaceNumber = 0,
@@ -1232,6 +1245,7 @@ static void send_file_work(struct work_struct *data)
 	int xfer, ret, hdr_size;
 	int r = 0;
 	int sendZLP = 0;
+	ktime_t start_time;
 #ifdef CONFIG_LGE_USB_G_MTP_PROFILING
 	ktime_t	send_start, start, diff;
 #endif
@@ -1306,6 +1320,7 @@ static void send_file_work(struct work_struct *data)
 #ifdef CONFIG_LGE_USB_G_MTP_PROFILING
 		start = ktime_get();
 #endif
+		start_time = ktime_get();
 		ret = vfs_read(filp, req->buf + hdr_size, xfer - hdr_size,
 								&offset);
 #ifdef CONFIG_LGE_USB_G_MTP_PROFILING
@@ -1319,7 +1334,12 @@ static void send_file_work(struct work_struct *data)
 			r = ret;
 			break;
 		}
+
 		xfer = ret + hdr_size;
+		dev->perf[dev->dbg_read_index].vfs_rtime =
+			ktime_to_us(ktime_sub(ktime_get(), start_time));
+		dev->perf[dev->dbg_read_index].vfs_rbytes = xfer;
+		dev->dbg_read_index = (dev->dbg_read_index + 1) % MAX_ITERATION;
 		hdr_size = 0;
 
 		req->length = xfer;
@@ -1371,6 +1391,7 @@ static void receive_file_work(struct work_struct *data)
 #ifdef CONFIG_LGE_USB_G_MTP_PROFILING
 	ktime_t	receive_start, start, diff;
 #endif
+	ktime_t start_time;
 
 	/* read our parameters */
 	smp_rmb();
@@ -1423,6 +1444,7 @@ static void receive_file_work(struct work_struct *data)
 #ifdef CONFIG_LGE_USB_G_MTP_PROFILING
 			start = ktime_get();
 #endif
+			start_time = ktime_get();
 			ret = vfs_write(filp, write_req->buf, write_req->actual,
 				&offset);
 #ifdef CONFIG_LGE_USB_G_MTP_PROFILING
@@ -1439,6 +1461,11 @@ static void receive_file_work(struct work_struct *data)
 					dev->state = STATE_ERROR;
 				break;
 			}
+			dev->perf[dev->dbg_write_index].vfs_wtime =
+				ktime_to_us(ktime_sub(ktime_get(), start_time));
+			dev->perf[dev->dbg_write_index].vfs_wbytes = ret;
+			dev->dbg_write_index =
+				(dev->dbg_write_index + 1) % MAX_ITERATION;
 			write_req = NULL;
 		}
 
@@ -1792,6 +1819,21 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
                         w_length : sizeof(mtp_ext_config_desc));
                 memcpy(cdev->req->buf, &mtp_ext_config_desc, value);
             }
+			if (!dev->is_ptp) {
+				value = (w_length <
+						sizeof(mtp_ext_config_desc) ?
+						w_length :
+						sizeof(mtp_ext_config_desc));
+				memcpy(cdev->req->buf, &mtp_ext_config_desc,
+									value);
+			} else {
+				value = (w_length <
+						sizeof(ptp_ext_config_desc) ?
+						w_length :
+						sizeof(ptp_ext_config_desc));
+				memcpy(cdev->req->buf, &ptp_ext_config_desc,
+									value);
+			}
 		}
 	} else if ((ctrl->bRequestType & USB_TYPE_MASK) == USB_TYPE_CLASS) {
 		DBG(cdev, "class request: %d index: %d value: %d length: %d\n",
@@ -2029,6 +2071,7 @@ mtp_function_unbind(struct usb_configuration *c, struct usb_function *f)
 #ifdef CONFIG_LGE_USB_G_ANDROID
 	mtp_rx_req_len = LG_MTP_RX_REQ_LEN;
 #endif
+	dev->is_ptp = false;
 }
 
 static int mtp_function_set_alt(struct usb_function *f,
@@ -2183,6 +2226,7 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 	dev->function.desc_change = lge_mtp_desc_change;
 #endif
 
+	dev->is_ptp = ptp_config;
 	return usb_add_function(c, &dev->function);
 
 #ifdef CONFIG_LGE_USB_G_MULTIPLE_CONFIGURATION
@@ -2355,6 +2399,119 @@ static void mtp_debugfs_init(struct mtp_dev *dev)
 }
 #endif /* CONFIG_LGE_USB_G_MTP_PROFILING && CONFIG_DEBUG_FS */
 
+static int debug_mtp_read_stats(struct seq_file *s, void *unused)
+{
+	struct mtp_dev *dev = _mtp_dev;
+	int i;
+	unsigned long flags;
+	unsigned min, max = 0, sum = 0, iteration = 0;
+
+	seq_puts(s, "\n=======================\n");
+	seq_puts(s, "MTP Write Stats:\n");
+	seq_puts(s, "\n=======================\n");
+	spin_lock_irqsave(&dev->lock, flags);
+	min = dev->perf[0].vfs_wtime;
+	for (i = 0; i < MAX_ITERATION; i++) {
+		seq_printf(s, "vfs write: bytes:%ld\t\t time:%d\n",
+				dev->perf[i].vfs_wbytes,
+				dev->perf[i].vfs_wtime);
+		if (dev->perf[i].vfs_wbytes == mtp_rx_req_len) {
+			sum += dev->perf[i].vfs_wtime;
+			if (min > dev->perf[i].vfs_wtime)
+				min = dev->perf[i].vfs_wtime;
+			if (max < dev->perf[i].vfs_wtime)
+				max = dev->perf[i].vfs_wtime;
+			iteration++;
+		}
+	}
+
+	seq_printf(s, "vfs_write(time in usec) min:%d\t max:%d\t avg:%d\n",
+						min, max, sum / iteration);
+	min = max = sum = iteration = 0;
+	seq_puts(s, "\n=======================\n");
+	seq_puts(s, "MTP Read Stats:\n");
+	seq_puts(s, "\n=======================\n");
+
+	min = dev->perf[0].vfs_rtime;
+	for (i = 0; i < MAX_ITERATION; i++) {
+		seq_printf(s, "vfs read: bytes:%ld\t\t time:%d\n",
+				dev->perf[i].vfs_rbytes,
+				dev->perf[i].vfs_rtime);
+		if (dev->perf[i].vfs_rbytes == mtp_tx_req_len) {
+			sum += dev->perf[i].vfs_rtime;
+			if (min > dev->perf[i].vfs_rtime)
+				min = dev->perf[i].vfs_rtime;
+			if (max < dev->perf[i].vfs_rtime)
+				max = dev->perf[i].vfs_rtime;
+			iteration++;
+		}
+	}
+
+	seq_printf(s, "vfs_read(time in usec) min:%d\t max:%d\t avg:%d\n",
+						min, max, sum / iteration);
+	spin_unlock_irqrestore(&dev->lock, flags);
+	return 0;
+}
+
+static ssize_t debug_mtp_reset_stats(struct file *file, const char __user *buf,
+				 size_t count, loff_t *ppos)
+{
+	int clear_stats;
+	unsigned long flags;
+	struct mtp_dev *dev = _mtp_dev;
+
+	if (buf == NULL) {
+		pr_err("[%s] EINVAL\n", __func__);
+		goto done;
+	}
+
+	if (sscanf(buf, "%u", &clear_stats) != 1 || clear_stats != 0) {
+		pr_err("Wrong value. To clear stats, enter value as 0.\n");
+		goto done;
+	}
+
+	spin_lock_irqsave(&dev->lock, flags);
+	memset(&dev->perf[0], 0, MAX_ITERATION * sizeof(dev->perf[0]));
+	dev->dbg_read_index = 0;
+	dev->dbg_write_index = 0;
+	spin_unlock_irqrestore(&dev->lock, flags);
+done:
+	return count;
+}
+
+static int debug_mtp_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, debug_mtp_read_stats, inode->i_private);
+}
+
+static const struct file_operations debug_mtp_ops = {
+	.open = debug_mtp_open,
+	.read = seq_read,
+	.write = debug_mtp_reset_stats,
+};
+
+struct dentry *dent_mtp;
+static void mtp_debugfs_init(void)
+{
+	struct dentry *dent_mtp_status;
+	dent_mtp = debugfs_create_dir("usb_mtp", 0);
+	if (!dent_mtp || IS_ERR(dent_mtp))
+		return;
+
+	dent_mtp_status = debugfs_create_file("status", S_IRUGO | S_IWUSR,
+					dent_mtp, 0, &debug_mtp_ops);
+	if (!dent_mtp_status || IS_ERR(dent_mtp_status)) {
+		debugfs_remove(dent_mtp);
+		dent_mtp = NULL;
+		return;
+	}
+}
+
+static void mtp_debugfs_remove(void)
+{
+	debugfs_remove_recursive(dent_mtp);
+}
+
 static int mtp_setup(void)
 {
 	struct mtp_dev *dev;
@@ -2390,6 +2547,7 @@ static int mtp_setup(void)
 #if defined CONFIG_DEBUG_FS && defined CONFIG_LGE_USB_G_MTP_PROFILING
 	mtp_debugfs_init(dev);
 #endif
+	mtp_debugfs_init();
 	return 0;
 
 err2:
@@ -2408,6 +2566,7 @@ static void mtp_cleanup(void)
 	if (!dev)
 		return;
 
+	mtp_debugfs_remove();
 	misc_deregister(&mtp_device);
 	destroy_workqueue(dev->wq);
 	_mtp_dev = NULL;

@@ -275,7 +275,7 @@ typedef enum {
 	})
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 typedef enum vzw_chg_state {
 	VZW_NO_CHARGER,
 	VZW_NORMAL_CHARGING,
@@ -362,7 +362,7 @@ struct bq24296_chip {
 	struct delayed_work check_suspended_work;
 	bool suspend;
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	chg_state		vzw_chg_mode;
 	unsigned int	adc_sum;
 	int			usbin_ref_count_vzw;
@@ -546,7 +546,7 @@ static void bq24296_reginfo(struct bq24296_chip *chip)
 }
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 static int bq24296_get_en_hiz(struct bq24296_chip *chip, bool *enable)
 {
 	int ret;
@@ -644,7 +644,7 @@ static int bq24296_set_input_i_limit(struct bq24296_chip *chip, int ma)
 				BQ00_INPUT_SRC_CONT_REG, IINLIM_MASK, 0x06);
 		}
 	}
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	bq24296_set_en_hiz(chip, (chip->usb_psy->is_floated_charger &&
 		(ma <= 0) && chip->usb_present) ? true : false);
 #endif
@@ -1282,7 +1282,7 @@ static void bq24296_irq_worker(struct work_struct *work)
 	/* temporary debug for interrupts */
 	pr_err("%s : occured\n", __func__);
 	NULL_CHECK_VOID(chip);
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	if (bq24296_is_en_hiz(chip))
 		bq24296_set_en_hiz(chip, false);
 #endif
@@ -1529,7 +1529,7 @@ static enum power_supply_property bq24296_batt_power_props[] = {
 	POWER_SUPPLY_PROP_BATTERY_ID_CHECKER,
 	POWER_SUPPLY_PROP_VALID_BATT,
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	POWER_SUPPLY_PROP_VZW_CHG,
 #endif
 #ifdef CONFIG_LGE_PM_FACTORY_TESTMODE
@@ -1941,7 +1941,7 @@ static int bq24296_batt_power_get_property(struct power_supply *psy,
 			val->intval = chip->batt_id_smem;
 		break;
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	case POWER_SUPPLY_PROP_VZW_CHG:
 		val->intval = chip->vzw_chg_mode;
 		break;
@@ -2003,7 +2003,7 @@ static int bq24296_batt_power_set_property(struct power_supply *psy,
 		 */
 		break;
 #endif
-#if defined CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ
+#if defined CONFIG_LGE_PM_FLOATED_CHARGER
 	case POWER_SUPPLY_PROP_VZW_CHG:
 		#define vzw_max_lmt (500)
 		#define vzw_cc (400)
@@ -2206,7 +2206,7 @@ static void bq24296_decide_otg_mode(struct bq24296_chip *chip)
 }
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 
 /* ADC_TO_IINMAX: IINMAX = (1V/RILIM) x KLIM
  * VZW_UNDER_CURRENT_CHARGING_MA: Threshold current level
@@ -2283,7 +2283,7 @@ static void bq24296_batt_external_power_changed(struct power_supply *psy)
 #if defined(CONFIG_CHARGER_UNIFIED_WLC)
 	union power_supply_propval wlc_ret = {0,};
 #endif
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	int input_i_limit = 0;
 #endif
 	int	busy_wait = 20;
@@ -2312,7 +2312,7 @@ static void bq24296_batt_external_power_changed(struct power_supply *psy)
 	bq24296_charger_psy_getprop(chip, usb_psy, CURRENT_MAX, &ret);
 
 	ret.intval = ret.intval / 1000; /* dwc3 treats uA */
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	input_i_limit = ret.intval;
 #endif
 	pr_err("dwc3 result=%dmA\n", ret.intval);
@@ -2393,7 +2393,7 @@ static void bq24296_batt_external_power_changed(struct power_supply *psy)
 	}
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	bq24296_charger_psy_getprop(chip, usb_psy, ONLINE, &ret);
 	if ((chip->input_i_limit ^ input_i_limit) || !ret.intval) {
 		chip->input_i_limit = input_i_limit;
@@ -3482,7 +3482,7 @@ static int bq24296_probe(struct i2c_client *client,
 
 	chip->client = client;
 	chip->batt_present = true;
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	chip->vzw_chg_mode = VZW_NO_CHARGER;
 #endif
 
@@ -3611,7 +3611,7 @@ static int bq24296_probe(struct i2c_client *client,
 			bq24296_check_suspended_worker);
 #endif
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	chip->usbin_ref_count_vzw = chip->adc_sum = 0;
 #endif
 	ret = switch_dev_register(&chip->batt_removed);

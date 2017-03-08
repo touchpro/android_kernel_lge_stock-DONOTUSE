@@ -80,6 +80,7 @@ int write_file(char *filename, char *data)
 	sys_chmod(filename, 0666);
 	if (fd < 0) {
 		TOUCH_INFO_MSG("%s :  Open file error [ %d ]\n", __func__, fd);
+		set_fs(old_fs);
 		return fd;
 	} else {
 		sys_write(fd, data, strlen(data));

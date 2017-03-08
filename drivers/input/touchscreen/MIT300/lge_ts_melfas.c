@@ -26,9 +26,6 @@ static struct mit_data* ts_data = NULL;
 #define ts_caps		(ts_pdata->caps)
 #define ts_role		(ts_pdata->role)
 #define ts_pwr		(ts_pdata->pwr)
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-#define f_abs(x)		((x) > 0 ? (x) : -(x))
-#endif
 
 /* LPWG Control Value */
 #define IDLE_REPORTRATE_CTRL    1
@@ -388,7 +385,7 @@ static void write_file(char *filename, char *data, int time)
 		if (time > 0) {
 			my_time = __current_kernel_time();
 			time_to_tm(my_time.tv_sec, sys_tz.tz_minuteswest * 60 * (-1), &my_date);
-			snprintf(time_string, 64, "\n%02d-%02d %02d:%02d:%02d.%03lu \n",
+			snprintf(time_string, 64, "\n%02d-%02d %02d:%02d:%02d.%03lu \n\n\n",
 				my_date.tm_mon + 1,my_date.tm_mday,
 				my_date.tm_hour, my_date.tm_min, my_date.tm_sec,
 				(unsigned long) my_time.tv_nsec / 1000000);
@@ -1442,10 +1439,8 @@ int mit_power_reset(struct mit_data *ts)
 {
 	TOUCH_INFO_MSG("Power Reset \n");
 
-#if !defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
 	reset_pin_ctrl(0, 2);
 	reset_pin_ctrl(1, ts->pdata->role->booting_delay);
-#endif
 
 	return 0;
 }
@@ -2574,12 +2569,6 @@ static int melfas_delta_show(struct i2c_client* client, char *buf)
 	return ret;
 }
 
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-int jitter_diff_row_result_L[MIT_SD_CM_JITTER_REPEAT][MAX_ROW-1];
-int jitter_diff_row_result_R[MIT_SD_CM_JITTER_REPEAT][MAX_ROW-1];
-int jitter_diff[MAX_ROW-1][MAX_COL];
-#endif
-
 static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 {
 	struct mit_data *ts = (struct mit_data *) get_touch_handle_(client);
@@ -2590,33 +2579,11 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 	u32 limit_upper = 0;
 	u32 limit_lower = 0;
 	char *sd_path = "/sdcard/touch_self_test.txt";
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	int j_ave_fail_count = 0;
-	int jitter_max_result = 1;
-	int jitter_continous_max_result = 1;
-	int jitter_ave_result = 1;
-	int jitter_diff_row_result = 1;
-	int i = 0;
-	int j = 0;
-	int k = 0;
-	int judge_count_L[MAX_ROW-1] = {0,};
-	int judge_count_R[MAX_ROW-1] = {0,};
-#endif
-
 	ts->pdata->selfdiagnostic_state[SD_RAWDATA] = 1;	/* rawdata */
 	ts->pdata->selfdiagnostic_state[SD_OPENSHORT] = 1;	/* openshort */
 	ts->pdata->selfdiagnostic_state[SD_CM_DELTA] = 1;
 	ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 1;
 	//ts->pdata->selfdiagnostic_state[SD_SLOPE] = 1;		/*  slope */
-
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	for (i = 0; i < MIT_SD_CM_JITTER_REPEAT; i++) {
-		for (j = 0; j < (MAX_ROW-1); j++) {
-			jitter_diff_row_result_L[i][j] = 1;
-			jitter_diff_row_result_R[i][j] = 1;
-		}
-	}
-#endif
 
 	mit_get_otp(ts);
 
@@ -2631,7 +2598,7 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 		ts->o_max = 0;
 		ts->o_min = 0;
 		ts->pdata->selfdiagnostic_state[SD_OPENSHORT] = 0;
-		len = snprintf(buf, PAGE_SIZE, "failed to get open short data\n");
+		len = snprintf(buf, PAGE_SIZE, "failed to get open short data\n\n");
 	}
 
 	write_file(sd_path, buf, 0);
@@ -2652,164 +2619,6 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 	write_file(sd_path, buf, 0);
 	msleep(30);
 
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	/* jitter test repeat */
-	for (i = 0; i < MIT_SD_CM_JITTER_REPEAT; i++) {
-		/* algorithm #1 (jitter max and jitter avr max) */
-		memset(buf, 0, PAGE_SIZE);
-		ts->pdata->selfdiagnostic_state[SD_CM_JITTER+i] = 1;	/*CM_JITTER*/
-		ret = mit_get_test_result(client, buf, CM_JITTER_SHOW);
-		if (ret < 0) {
-			TOUCH_ERR_MSG("failed to get cm jitter data\n");
-			memset(buf, 0, PAGE_SIZE);
-			ts->j_max = 0;
-			ts->j_min = 0;
-			ts->j_ave_max = 0;
-			ts->pdata->selfdiagnostic_state[SD_CM_JITTER+i] = 0;
-			len = snprintf(buf, PAGE_SIZE, "failed to get cm jitter data\n\n");
-		}
-		ts->jitter_max[i] = ts->j_max;
-		ts->jitter_min[i] = ts->j_min;
-		ts->jitter_average_max[i] = ts->j_ave_max;
-		write_file(sd_path, buf, 0);
-		msleep(30);
-
-		/* algorithm #2 (jitter row diff) */
-		//memset(buf, 0, PAGE_SIZE);
-		//ret = 0;
-		/* store jitter diff array */
-		for (j = 0; j < (MAX_ROW - 1); j++) {
-			//ret += sprintf(buf+ret,"[%2d]  ",j);
-			printk("[Touch] [%2d]  ",j);
-			for (k = 0; k < MAX_COL; k++) {
-				jitter_diff[j][k] = f_abs(ts->mit_data[j+1][k] - ts->mit_data[j][k]);
-				if (jitter_diff[j][k] >= ROW_DIFF_MARGINE) {
-					//ret += sprintf(buf+ret,"%5d " , jitter_diff[j][k]);
-					//printk("%5d ", jitter_diff[j][k]);
-					printk("%5s ", "X");
-				} else {
-					printk("%5s ", ",");
-				}
-			}
-			//ret += sprintf(buf+ret,"\n");
-			printk("\n");
-		}
-		//ret += sprintf(buf+ret,"JITTER ROW DIFF ARRAY [%d]\n", i);
-		printk("[Touch] JITTER ROW DIFF ARRAY [%d]\n", i);
-		//write_file(sd_path, buf, 0);
-		//msleep(30);
-
-		for (j = 0; j < (MAX_ROW - 1); j++) {
-			/* Left */
-			for (k = 0; k < (MAX_COL / 2); k++) {
-				if (jitter_diff[j][k] >= ROW_DIFF_MARGINE) {
-					judge_count_L[j]++;
-				}
-			}
-			if (judge_count_L[j] >= JITTER_JUDGE_COUNT) {
-				jitter_diff_row_result_L[i][j] = 0;
-			}
-
-			/* Right */
-			for (k = (MAX_COL / 2); k < MAX_COL; k++) {
-				if (jitter_diff[j][k] >= ROW_DIFF_MARGINE) {
-					judge_count_R[j]++;
-				}
-			}
-			if (judge_count_R[j] >= JITTER_JUDGE_COUNT) {
-				jitter_diff_row_result_R[i][j] = 0;
-			}
-			judge_count_L[j] = 0;
-			judge_count_R[j] = 0;
-		}
-	}
-	/* jitter test end */
-
-	/* check diff value start */
-	/* check continuous diff result fail contidion(FFFFP,PFFFF,FFFFF) only 3 */
-	for (j = 0; j < (MAX_ROW - 1); j++) {
-		if ( (jitter_diff_row_result_L[0][j] == 0 &&
-				jitter_diff_row_result_L[1][j] == 0 &&
-				jitter_diff_row_result_L[2][j] == 0 &&
-				jitter_diff_row_result_L[3][j] == 0 )
-			|| (jitter_diff_row_result_L[1][j] == 0 &&
-				jitter_diff_row_result_L[2][j] == 0 &&
-				jitter_diff_row_result_L[3][j] == 0 &&
-				jitter_diff_row_result_L[4][j] == 0) ) {
-			//ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 0;
-			jitter_diff_row_result = 0;
-			printk("[Touch] Left diff row fail %d ",j);
-		}
-		if ( (jitter_diff_row_result_R[0][j] == 0 &&
-				jitter_diff_row_result_R[1][j] == 0 &&
-				jitter_diff_row_result_R[2][j] == 0 &&
-				jitter_diff_row_result_R[3][j] == 0 )
-			|| (jitter_diff_row_result_R[1][j] == 0 &&
-				jitter_diff_row_result_R[2][j] == 0 &&
-				jitter_diff_row_result_R[3][j] == 0 &&
-				jitter_diff_row_result_R[4][j] == 0) ) {
-			//ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 0;
-			jitter_diff_row_result = 0;
-			printk("[Touch] Right diff row fail %d ",j);
-		}
-	}
-	/* check diff value end */
-
-	/* 1. check jitter max value */
-	for (i = 0; i < (MIT_SD_CM_JITTER_REPEAT - 1); i++) {
-		if ((ts->jitter_max[i] > ts->pdata->limit->cm_jitter)) {
-			jitter_max_result = 0;
-		}
-	}
-
-	/* 2. check continuous jitter max value */
-	for (i = 0; i < (MIT_SD_CM_JITTER_REPEAT - 1); i++) {
-		if ((ts->jitter_max[i] > ts->pdata->limit->cm_jitter) && (ts->jitter_max[i+1] > ts->pdata->limit->cm_jitter)) {
-			jitter_continous_max_result = 0;
-			break;
-		}
-	}
-
-	/* 3. check jitter ave max value */
-	for (i = 0; i < MIT_SD_CM_JITTER_REPEAT; i++) {
-		if((ts->jitter_average_max[i] > AVERAGE_JITTER_LIMIT)) {
-			j_ave_fail_count++;
-		}
-	}
-
-	/* 4. check jitter ave max result */
-	if ( j_ave_fail_count > 1 ) {
-		jitter_ave_result = 0;
-	}
-
-	/*------------------------------------------------------------------------------------------------------------------------*/
-	// This point is very important to tell whether Jitter is PASS or FAIL 2015.12.12
-	memset(buf, 0, PAGE_SIZE);
-	if ( (jitter_diff_row_result == 0) && (jitter_max_result == 0) ) {
-		ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 0;
-		TOUCH_INFO_MSG("algorithm#2\n");
-	} else {
-		if ( (jitter_continous_max_result == 0) && (jitter_ave_result == 0) ) {
-			ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 0;
-			TOUCH_INFO_MSG("algorithm#1\n");
-		} else {
-			ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 1;
-		}
-	}
-	len = snprintf(buf, PAGE_SIZE , "jitter_diff_row_result=%d(%s), jitter_max_result=%d(%s), jitter_continous_max_result=%d(%s), jitter_ave_result=%d(%s)\n",
-						jitter_diff_row_result, jitter_diff_row_result ? "PASS":"FAIL",
-						jitter_max_result, jitter_max_result ? "PASS":"FAIL",
-						jitter_continous_max_result, jitter_continous_max_result ? "PASS":"FAIL",
-						jitter_ave_result, jitter_ave_result ? "PASS":"FAIL");
-	TOUCH_INFO_MSG("jitter_diff_row_result=%d(%s), jitter_max_result=%d(%s), jitter_continous_max_result=%d(%s), jitter_ave_result=%d(%s)\n",
-						jitter_diff_row_result, jitter_diff_row_result ? "PASS":"FAIL",
-						jitter_max_result, jitter_max_result ? "PASS":"FAIL",
-						jitter_continous_max_result, jitter_continous_max_result ? "PASS":"FAIL",
-						jitter_ave_result, jitter_ave_result ? "PASS":"FAIL");
-	write_file(sd_path, buf, 0);
-	msleep(30);
-	/*------------------------------------------------------------------------------------------------------------------------*/
-#else
 	memset(buf, 0, PAGE_SIZE);
 	ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = 1;	/*CM_JITTER*/
 	ret = mit_get_test_result(client, buf, CM_JITTER_SHOW);
@@ -2824,7 +2633,6 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 
 	write_file(sd_path, buf, 0);
 	msleep(30);
-#endif
 
 	memset(buf, 0, PAGE_SIZE);
 	ts->pdata->selfdiagnostic_state[SD_RAWDATA] = 1;	/* rawdata */
@@ -2835,7 +2643,7 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 		ts->r_max = 0;
 		ts->r_min = 0;
 		ts->pdata->selfdiagnostic_state[SD_RAWDATA] = 0;
-		len = snprintf(buf, PAGE_SIZE, "failed to get raw data\n");
+		len = snprintf(buf, PAGE_SIZE, "failed to get raw data\n\n");
 	}
 
 	write_file(sd_path, buf, 0);
@@ -2878,11 +2686,11 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 				printk("\n");
 				ret += sprintf(buf+ret,"\n");
 		}
-		ret += sprintf(buf+ret,"RawData : FAIL\n");
-		TOUCH_INFO_MSG("RawData : FAIL\n");
-	} else {
-		ret += sprintf(buf+ret,"RawData : PASS\n");
-		TOUCH_INFO_MSG("RawData : PASS\n");
+		ret += sprintf(buf+ret,"RawData : FAIL\n\n");
+		TOUCH_INFO_MSG("RawData : FAIL\n\n");
+	}else {
+		ret += sprintf(buf+ret,"RawData : PASS\n\n");
+		TOUCH_INFO_MSG("RawData : PASS\n\n");
 	}
 	write_file(sd_path, buf, 0);
 	msleep(30);
@@ -2900,19 +2708,8 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 	if (ts->pdata->check_openshort)
 		TOUCH_INFO_MSG("OpenShort : %5d , %5d\n", ts->o_max, ts->o_min);
 	TOUCH_INFO_MSG("CmDelta   : %5d , %5d\n", ts->d_max, ts->d_min);
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	for (i = 0; i < MIT_SD_CM_JITTER_REPEAT; i++) {
-		//ts->pdata->selfdiagnostic_state[SD_CM_JITTER] = ts->pdata->selfdiagnostic_state[SD_CM_JITTER] * ts->pdata->selfdiagnostic_state[SD_CM_JITTER+i+1];
-		ts->j_max = (ts->j_max < ts->jitter_max[i]) ? ts->jitter_max[i] : ts->j_max;
-		ts->j_min = (ts->j_min < ts->jitter_min[i]) ? ts->jitter_min[i] : ts->j_min;
-		ts->j_ave_max = (ts->j_ave_max < ts->jitter_average_max[i]) ? ts->jitter_average_max[i] : ts->j_ave_max;
-		TOUCH_INFO_MSG("CmJitter #%d : %4d , %4d , %4d\n", i+1, ts->jitter_max[i], ts->jitter_min[i], ts->jitter_average_max[i]);
-	}
-	TOUCH_INFO_MSG("Rawdata : %5d , %5d\n", ts->r_max, ts->r_min);
-#else
 	TOUCH_INFO_MSG("CmJitter  : %5d , %5d\n", ts->j_max, ts->j_min);
 	TOUCH_INFO_MSG("Rawdata   : %5d , %5d\n", ts->r_max, ts->r_min);
-#endif
 	TOUCH_INFO_MSG("=========RESULT==========\n");
 	TOUCH_INFO_MSG("Channel Status : %s\n", (ts->pdata->selfdiagnostic_state[SD_OPENSHORT]
 				* ts->pdata->selfdiagnostic_state[SD_CM_DELTA] * ts->pdata->selfdiagnostic_state[SD_CM_JITTER]) == 1 ? "PASS" : "FAIL");
@@ -2932,24 +2729,11 @@ static ssize_t mit_self_diagnostic_show(struct i2c_client *client, char *buf)
 	if (ts->pdata->check_openshort)
 		len += snprintf(buf + len, PAGE_SIZE - len, "OpenShort : %5d , %5d\n", ts->o_max, ts->o_min);
 	len += snprintf(buf + len, PAGE_SIZE - len, "CmDelta   : %5d , %5d\n", ts->d_max, ts->d_min);
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	for (i = 0; i < MIT_SD_CM_JITTER_REPEAT; i++) {
-		len += snprintf(buf + len, PAGE_SIZE - len, "CmJitter #%d : %4d , %4d , %4d\n", i+1, ts->jitter_max[i], ts->jitter_min[i], ts->jitter_average_max[i]);
-	}
-#else
 	len += snprintf(buf + len, PAGE_SIZE - len, "CmJitter  : %5d , %5d\n", ts->j_max, ts->j_min);
-#endif
 	len += snprintf(buf + len, PAGE_SIZE - len, "Rawdata   : %5d , %5d\n", ts->r_max, ts->r_min);
 	len += snprintf(buf + len, PAGE_SIZE - len, "=========RESULT==========\n");
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	len += snprintf(buf + len, PAGE_SIZE - len, "Channel Status : %s\n", (ts->pdata->selfdiagnostic_state[SD_OPENSHORT]
-					* ts->pdata->selfdiagnostic_state[SD_CM_DELTA] * ts->pdata->selfdiagnostic_state[SD_CM_JITTER]) == 1 ? "PASS" : "FAIL");
-	len += snprintf(buf + len, PAGE_SIZE - len, " Jitter Max : %d\n", ts->j_max);
-	len += snprintf(buf + len, PAGE_SIZE - len, " Jitter Average : %d\n", ts->j_ave_max);
-#else
 	len += snprintf(buf + len, PAGE_SIZE - len, "Channel Status : %s\n", (ts->pdata->selfdiagnostic_state[SD_OPENSHORT] == 1
 							* ts->pdata->selfdiagnostic_state[SD_CM_DELTA] * ts->pdata->selfdiagnostic_state[SD_CM_JITTER])? "PASS" : "FAIL");
-#endif
 	len += snprintf(buf + len, PAGE_SIZE - len, "Raw Data : %s\n", ts->pdata->selfdiagnostic_state[SD_RAWDATA] == 1 ? "PASS" : "FAIL");
 	write_file(sd_path, buf, 0);
 	return len;

@@ -11,7 +11,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the¬
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  */
@@ -19,7 +19,7 @@
 #ifndef TOUCH_SPI_H
 #define TOUCH_SPI_H
 
-#include "touch_hwif.h"
+#include <touch_hwif.h>
 
 extern int touch_spi_read(struct spi_device *, struct touch_bus_msg *msg);
 extern int touch_spi_write(struct spi_device *, struct touch_bus_msg *msg);

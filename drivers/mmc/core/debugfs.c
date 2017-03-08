@@ -19,6 +19,7 @@
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
+#include <linux/mmc/mmc.h>
 
 #include "core.h"
 #include "mmc_ops.h"
@@ -382,6 +383,9 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
 
 #ifdef CONFIG_MACH_LGE
 	switch (ext_csd_rev) {
+	case 8:
+		str = "5.1";
+		break;
 	case 7:
 	       str = "5.0";
 	       break;
@@ -522,6 +526,8 @@ static int mmc_ext_csd_open(struct inode *inode, struct file *filp)
        seq_printf(s, "[189] Command set revision, cmd_set_rev: 0x%02x\n", ext_csd[189]);
        seq_printf(s, "[187] Power class, power_class: 0x%02x\n", ext_csd[187]);
        seq_printf(s, "[185] High-speed interface timing, hs_timing: 0x%02x\n", ext_csd[185]);
+       if(ext_csd_rev >= 7)
+        seq_printf(s, "[184] Enhanced strobe support, strobe_support: 0x%02x\n", ext_csd[184]);
        seq_printf(s, "[181] Erased memory content, erased_mem_cont: 0x%02x\n", ext_csd[181]);
        seq_printf(s, "[179] Partition configuration, partition_config: 0x%02x\n", ext_csd[179]);
        seq_printf(s, "[178] Boot config protection, boot_config_prot: 0x%02x\n", ext_csd[178]);
@@ -961,7 +967,7 @@ void mmc_add_card_debugfs(struct mmc_card *card)
 			goto err;
 
 	if (mmc_card_mmc(card) && (card->ext_csd.rev >= 5) &&
-	    card->ext_csd.bkops_en)
+	    (mmc_card_get_bkops_en_manual(card)))
 		if (!debugfs_create_file("bkops_stats", S_IRUSR, root, card,
 					 &mmc_dbg_bkops_stats_fops))
 			goto err;

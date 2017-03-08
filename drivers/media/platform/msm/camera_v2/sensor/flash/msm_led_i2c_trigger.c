@@ -367,7 +367,7 @@ int msm_flash_led_release(struct msm_led_flash_ctrl_t *fctrl)
 
 #if defined(CONFIG_BACKLIGHT_LM3632)
 
-	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_P1B_CAMERA) || defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM) || defined(CONFIG_LGE_K5_CAMERA)
+	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_P1B_CAMERA) || defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM) || defined(CONFIG_LGE_K5_CAMERA) || defined(CONFIG_LGE_PH1_CAMERA)
 		rc =flash_write_reg(fctrl->flash_i2c_client, 0x0A, 0x09);
 	#else
 		rc =flash_write_reg(fctrl->flash_i2c_client, 0x0A, 0x11);
@@ -438,7 +438,7 @@ int msm_flash_led_off(struct msm_led_flash_ctrl_t *fctrl)
 
 #if defined(CONFIG_BACKLIGHT_LM3632)
 
-	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_P1B_CAMERA) || defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM) || defined(CONFIG_LGE_K5_CAMERA)
+	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_P1B_CAMERA) || defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM) || defined(CONFIG_LGE_K5_CAMERA) || defined(CONFIG_LGE_PH1_CAMERA)
 		rc =flash_write_reg(fctrl->flash_i2c_client, 0x0A, 0x09);
 	#else
 		rc =flash_write_reg(fctrl->flash_i2c_client, 0x0A, 0x11);
@@ -555,7 +555,7 @@ int msm_flash_led_low(struct msm_led_flash_ctrl_t *fctrl)
 	/* Control of I/O register */
 #if defined(CONFIG_BACKLIGHT_LM3632)
 
-	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_K5_CAMERA)
+	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_K5_CAMERA) || defined(CONFIG_LGE_PH1_CAMERA)
 		rc =flash_write_reg(fctrl->flash_i2c_client, 0x0A, 0x09);
 	#elif defined(CONFIG_LGE_P1B_CAMERA) || defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
 		flash_ctrl = 0;
@@ -688,8 +688,11 @@ int msm_flash_led_high(struct msm_led_flash_ctrl_t *fctrl)
 		/* Configuration of current, torch : 50mA, strobe :900mA */
 		rc =flash_write_reg(fctrl->flash_i2c_client,	0x06, 0x18);
 	#elif defined(CONFIG_MACH_MSM8916_PH1)
-	    /* Configuration of current, torch : 50mA, strobe :1A */
-	    rc =flash_write_reg(fctrl->flash_i2c_client,    0x06, 0x19);
+	    /* Configuration of current, torch : 50mA, strobe :1.1A */
+	    rc =flash_write_reg(fctrl->flash_i2c_client,    0x06, 0x1A);
+	#elif defined(CONFIG_MACH_MSM8916_K5)
+	    /* Configuration of current, torch : 50mA, strobe :1.2A */
+	    rc =flash_write_reg(fctrl->flash_i2c_client,    0x06, 0x1B);
 	#else
 		/* Configuration of current, torch : 50mA, strobe :800mA */
 		rc =flash_write_reg(fctrl->flash_i2c_client,	0x06, 0x17);
@@ -708,7 +711,7 @@ int msm_flash_led_high(struct msm_led_flash_ctrl_t *fctrl)
 	/* Control of I/O register */
 #if defined(CONFIG_BACKLIGHT_LM3632)
 
-	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_K5_CAMERA)
+	#if defined(CONFIG_LGE_G4STYLUS_CAMERA) || defined(CONFIG_LGE_K5_CAMERA) || defined(CONFIG_LGE_PH1_CAMERA)
 		rc =flash_write_reg(fctrl->flash_i2c_client, 0x0A, 0x09);
 	#elif defined(CONFIG_LGE_P1B_CAMERA) || defined(CONFIG_MACH_MSM8916_C100N_KR) || defined(CONFIG_MACH_MSM8916_C100N_GLOBAL_COM) || defined(CONFIG_MACH_MSM8916_C100_GLOBAL_COM)
 		flash_ctrl = 0;

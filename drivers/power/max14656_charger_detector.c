@@ -148,7 +148,7 @@ static int max14656_get_chg_type_status(struct max14656_chip *chip)
 static int max14656_get_vb_valid_status(struct max14656_chip *chip)
 {
 	u8 val;
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	u8 manual;
 #endif
 	int ret = 0;
@@ -163,7 +163,7 @@ static int max14656_get_vb_valid_status(struct max14656_chip *chip)
 	val = (val & VB_VALID_STATUS_MASK) >> 4;
 	pr_debug("%s : val = %d\n", __func__, val);
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	ret = max14656_read_reg(chip->client, MAX14656_CONTROL_3, &manual);
 	if (ret) {
 		pr_err("fail to read MAX14656_CONTROL_3. ret=%d\n", ret);
@@ -179,7 +179,7 @@ static int max14656_get_vb_valid_status(struct max14656_chip *chip)
 	return val;
 }
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 static int max14656_set_prop_chg_type_manual(struct max14656_chip *chip,
 					int manual) {
 
@@ -205,6 +205,23 @@ static int max14656_set_prop_chg_type_manual(struct max14656_chip *chip,
 
 	return ret;
 }
+
+static int max14656_get_prop_chg_type_manual(struct max14656_chip *chip)
+{
+	u8 val;
+	int ret = 0;
+
+NULL_CHECK(chip, -EINVAL);
+
+	ret = max14656_read_reg(chip->client, MAX14656_CONTROL_3, &val);
+	if (ret) {
+		pr_err("fail to read MAX14656_CONTROL_3. ret=%d\n", ret);
+		return ret;
+	}
+	val &= BIT(1);
+
+	return val;
+}
 #endif
 #endif
 
@@ -228,8 +245,11 @@ static void max14656_irq_worker(struct work_struct *work)
 		chip->chg_detect_done = 1;
 		chip->chg_type = max14656_get_chg_type_status(chip);
 		max14656_charger_type = max14656_get_chg_type_status(chip);
-	} else
+	} else {
 		chip->chg_detect_done = 0;
+		chip->chg_type = 0;
+		max14656_charger_type = 0;
+	}
 	pr_err("%s max14656_chg_detect_done = %d\n", __func__, chip->chg_detect_done);
 
 	chip->dcd_timeout = (reg_address[REG_01] & DCD_TIMEOUT_MASK) ? 1:0;
@@ -300,13 +320,16 @@ static int max14656_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_USB_DCD_TIMEOUT:
 		val->intval = chip->dcd_timeout;
 		break;
+	case POWER_SUPPLY_PROP_USB_CHG_TYPE_MANUAL:
+		val->intval = max14656_get_prop_chg_type_manual(chip);
+		break;
 	default:
 		return -EINVAL;
 	}
 
 	return 0;
 }
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 static int max14656_set_property(struct power_supply *psy,
                             enum power_supply_property psp,
                             const union power_supply_propval *val)
@@ -318,10 +341,23 @@ static int max14656_set_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_USB_CHG_TYPE_MANUAL:
-		return max14656_set_prop_chg_type_manual(chip, val->intval);
+		max14656_set_prop_chg_type_manual(chip, val->intval);
 		break;
 	default:
 		return -EINVAL;
+	}
+	return 0;
+}
+
+static int max14656_property_is_writeable(struct power_supply *psy,
+		enum power_supply_property psp)
+{
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_USB_CHG_TYPE_MANUAL:
+		return 1;
+	default:
+		break;
 	}
 	return 0;
 }
@@ -330,9 +366,6 @@ static enum power_supply_property max14656_battery_props[] = {
 	POWER_SUPPLY_PROP_USB_CHG_DETECT_DONE,
 	POWER_SUPPLY_PROP_USB_CHG_TYPE,
 	POWER_SUPPLY_PROP_USB_DCD_TIMEOUT,
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
-	POWER_SUPPLY_PROP_USB_CHG_TYPE_MANUAL,
-#endif
 };
 
 static char *pm_power_supplied_to[] = {
@@ -347,8 +380,9 @@ static struct power_supply max14656_ps = {
 	.properties = max14656_battery_props,
 	.num_properties = ARRAY_SIZE(max14656_battery_props),
 	.get_property = max14656_get_property,
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	.set_property = max14656_set_property,
+	.property_is_writeable = max14656_property_is_writeable,
 #endif
 };
 #endif

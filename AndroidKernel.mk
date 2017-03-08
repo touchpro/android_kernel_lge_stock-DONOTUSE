@@ -33,6 +33,11 @@ KERNEL_CONFIG_OVERRIDE := CONFIG_ANDROID_BINDER_IPC_32BIT=y
 endif
 endif
 
+ifeq ($(PRODUCT_SUPPORT_OTG), y)
+KERNEL_CONFIG_OVERRIDE := \
+	CONFIG_USB_HOST_NOTIFY=y
+endif
+
 TARGET_KERNEL_CROSS_COMPILE_PREFIX := $(strip $(TARGET_KERNEL_CROSS_COMPILE_PREFIX))
 ifeq ($(TARGET_KERNEL_CROSS_COMPILE_PREFIX),)
 KERNEL_CROSS_COMPILE := arm-eabi-
@@ -71,6 +76,7 @@ TARGET_PREBUILT_INT_KERNEL := $(TARGET_PREBUILT_INT_KERNEL)-dtb
 endif
 
 KERNEL_HEADERS_INSTALL := $(KERNEL_OUT)/usr
+KERNEL_HEADERS_TIMESTAMP := $(KERNEL_HEADERS_INSTALL)/build-timestamp
 KERNEL_MODULES_INSTALL := system
 KERNEL_MODULES_OUT := $(TARGET_OUT)/lib/modules
 
@@ -93,17 +99,26 @@ mpath=`dirname $$mdpath`; rm -rf $$mpath;\
 fi
 endef
 
+ifeq ($(INIT_BOOTCHART2), true)
+KERNEL_CONFIG_OVERRIDE_FILES += bootchart2_defconfig
+endif
+
 $(KERNEL_OUT):
 	mkdir -p $(KERNEL_OUT)
 
-$(KERNEL_CONFIG): $(KERNEL_OUT)
+$(KERNEL_CONFIG): | $(KERNEL_OUT)
 	$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) $(KERNEL_DEFCONFIG)
 	$(hide) if [ ! -z "$(KERNEL_CONFIG_OVERRIDE)" ]; then \
 			echo "Overriding kernel config with '$(KERNEL_CONFIG_OVERRIDE)'"; \
 			echo $(KERNEL_CONFIG_OVERRIDE) >> $(KERNEL_OUT)/.config; \
 			$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) oldconfig; fi
+	$(hide) if [ ! -z "$(KERNEL_CONFIG_OVERRIDE_FILES)" ]; then \
+	echo "Overriding kernel config with '$(KERNEL_CONFIG_OVERRIDE_FILES)'"; \
+			for override_file in $(KERNEL_CONFIG_OVERRIDE_FILES); \
+	do cat kernel/arch/${KERNEL_ARCH}/configs/$$override_file >> $(KERNEL_OUT)/.config; done; \
+			$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) olddefconfig; fi
 
-$(TARGET_PREBUILT_INT_KERNEL): $(KERNEL_OUT) $(KERNEL_HEADERS_INSTALL)
+$(TARGET_PREBUILT_INT_KERNEL): $(KERNEL_HEADERS_INSTALL) | $(KERNEL_OUT)
 	$(hide) echo "Building kernel..."
 	$(hide) rm -rf $(KERNEL_OUT)/arch/$(KERNEL_ARCH)/boot/dts
 	$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) $(KERNEL_CFLAGS)
@@ -123,7 +138,9 @@ endif
 	@mkdir -p $(TARGET_OUT_EXECUTABLES)
 	@cp $(ANDROID_BUILD_TOP)/tuxera-*/exfat/kernel-module/texfat.ko $(ANDROID_BUILD_TOP)/$(TARGET_OUT_EXECUTABLES)/../lib/modules/
 	@cp $(ANDROID_BUILD_TOP)/tuxera-*/exfat/tools/* $(TARGET_OUT_EXECUTABLES)
+ifneq ($(PRODUCT_SUPPORT_EXFAT_NO_SIGN), y)
 	perl $(ANDROID_BUILD_TOP)/kernel/scripts/sign-file sha1 $(ANDROID_BUILD_TOP)/$(KERNEL_OUT)/signing_key.priv $(ANDROID_BUILD_TOP)/$(KERNEL_OUT)/signing_key.x509 $(ANDROID_BUILD_TOP)/$(KERNEL_MODULES_OUT)/texfat.ko
+endif
 ifeq ($(PRODUCT_SUPPORT_NTFS), y)
 	@cp $(ANDROID_BUILD_TOP)/tuxera-*/ntfs/kernel-module/tntfs.ko $(ANDROID_BUILD_TOP)/$(TARGET_OUT_EXECUTABLES)/../lib/modules/
 	@cp $(ANDROID_BUILD_TOP)/tuxera-*/ntfs/tools/* $(TARGET_OUT_EXECUTABLES)
@@ -147,6 +164,8 @@ ifeq ($(ITSON_ENABLED), true)
 	@rm -rf $(ANDROID_BUILD_TOP)/$(ITSON_MODULE2_PATH)/build
 endif
 
+$(KERNEL_HEADERS_TIMESTAMP): $(KERNEL_HEADERS_INSTALL)
+
 # porting bootchart2 to android
 ifeq ($(INIT_BOOTCHART2),true)
 ifeq ($(TARGET_DEVICE),$(filter $(TARGET_DEVICE), altev2))
@@ -166,7 +185,7 @@ bootchart2defconfig:
 	echo "CONFIG_CONNECTOR=y" >> $(KERNEL_DEFCONFIG_BC2_PATH)
 	echo "CONFIG_PROC_EVENTS=y" >> $(KERNEL_DEFCONFIG_BC2_PATH)
 
-$(KERNEL_HEADERS_INSTALL): $(KERNEL_OUT) bootchart2defconfig
+$(KERNEL_HEADERS_INSTALL): bootchart2defconfig | $(KERNEL_OUT)
 	$(hide) if [ ! -z "$(KERNEL_HEADER_DEFCONFIG)" ]; then \
 			$(hide) rm -f ../bc2_$(KERNEL_CONFIG); \
 			$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_HEADER_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) bc2_$(KERNEL_HEADER_DEFCONFIG); \
@@ -179,8 +198,9 @@ $(KERNEL_HEADERS_INSTALL): $(KERNEL_OUT) bootchart2defconfig
 			echo "Overriding kernel config with '$(KERNEL_CONFIG_OVERRIDE)'"; \
 			echo $(KERNEL_CONFIG_OVERRIDE) >> $(KERNEL_OUT)/.config; \
 			$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) oldconfig; fi
+	$(hide) touch $@/build-timestamp
 else
-$(KERNEL_HEADERS_INSTALL): $(KERNEL_OUT)
+$(KERNEL_HEADERS_INSTALL): | $(KERNEL_OUT)
 	$(hide) if [ ! -z "$(KERNEL_HEADER_DEFCONFIG)" ]; then \
 			$(hide) rm -f ../$(KERNEL_CONFIG); \
 			$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_HEADER_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) $(KERNEL_HEADER_DEFCONFIG); \
@@ -193,12 +213,18 @@ $(KERNEL_HEADERS_INSTALL): $(KERNEL_OUT)
 			echo "Overriding kernel config with '$(KERNEL_CONFIG_OVERRIDE)'"; \
 			echo $(KERNEL_CONFIG_OVERRIDE) >> $(KERNEL_OUT)/.config; \
 			$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) oldconfig; fi
+	$(hide) if [ ! -z "$(KERNEL_CONFIG_OVERRIDE_FILES)" ]; then \
+	  echo "Overriding kernel config with '$(KERNEL_CONFIG_OVERRIDE_FILES)'"; \
+	  for override_file in $(KERNEL_CONFIG_OVERRIDE_FILES); \
+	  	do cat kernel/arch/${KERNEL_ARCH}/configs/$$override_file >> $(KERNEL_OUT)/.config; done; \
+	$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) olddefconfig; fi
+	$(hide) touch $@/build-timestamp
 endif
 
-kerneltags: $(KERNEL_OUT) $(KERNEL_CONFIG)
+kerneltags: $(KERNEL_CONFIG) | $(KERNEL_OUT)
 	$(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) tags
 
-kernelconfig: $(KERNEL_OUT) $(KERNEL_CONFIG)
+kernelconfig: $(KERNEL_CONFIG) | $(KERNEL_OUT)
 	env KCONFIG_NOTIMESTAMP=true \
 	     $(MAKE) -C kernel O=../$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) menuconfig
 	env KCONFIG_NOTIMESTAMP=true \

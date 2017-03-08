@@ -327,9 +327,9 @@
 #define POWERLOCK_FW_UP		(0x01 << 1)
 #define POWERLOCK_SYSFS		(0x01 << 2)
 
-#define SELF_DIAGNOSTIC_FILE_PATH "/mnt/sdcard/touch_self_test.txt"
-#define RAWDATA_FILE_PATH "/mnt/sdcard/touch_rawdata.txt"
-#define DELTA_FILE_PATH "/mnt/sdcard/touch_delta.txt"
+#define SELF_DIAGNOSTIC_FILE_PATH "/data/touch/touch_self_test.txt"
+#define RAWDATA_FILE_PATH "/data/touch/touch_rawdata.txt"
+#define DELTA_FILE_PATH "/data/touch/touch_delta.txt"
 #define SELF_DIAGNOSTIC_STATUS_COMPLETE	0
 #define SELF_DIAGNOSTIC_STATUS_RUNNING	1
 

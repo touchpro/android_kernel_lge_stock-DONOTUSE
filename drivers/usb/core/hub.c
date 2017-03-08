@@ -1003,19 +1003,19 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 
 	/* Continue a partial initialization */
 	if (type == HUB_INIT2 || type == HUB_INIT3) {
-				device_lock(hub->intfdev);
-		
-				/* Was the hub disconnected while we were waiting? */
-				if (hub->disconnected) {
-							device_unlock(hub->intfdev);
-							kref_put(&hub->kref, hub_release);
-							return;
-				}
-						if (type == HUB_INIT2)
-							goto init2;
-						goto init3;
+                device_lock(hub->intfdev);
+
+                /* Was the hub disconnected while we were waiting? */
+                if (hub->disconnected) {
+                        device_unlock(hub->intfdev);
+                        kref_put(&hub->kref, hub_release);
+                        return;
+		}
+                if (type == HUB_INIT2)
+                        goto init2;
+		goto init3;
 	}
-	kref_get(&hub->kref);
+        kref_get(&hub->kref);
 
 	/* The superspeed hub except for root hub has to use Hub Depth
 	 * value as an offset into the route string to locate the bits
@@ -1220,7 +1220,7 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 			PREPARE_DELAYED_WORK(&hub->init_work, hub_init_func3);
 			schedule_delayed_work(&hub->init_work,
 					msecs_to_jiffies(delay));
-			device_unlock(hub->intfdev);
+                        device_unlock(hub->intfdev);
 			return;		/* Continues at init3: below */
 		} else {
 			msleep(delay);
@@ -1243,7 +1243,8 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 		usb_autopm_put_interface_async(to_usb_interface(hub->intfdev));
 
 	if (type == HUB_INIT2 || type == HUB_INIT3)
-			device_unlock(hub->intfdev);
+		device_unlock(hub->intfdev);
+
 	kref_put(&hub->kref, hub_release);
 }
 
@@ -2582,7 +2583,7 @@ static unsigned hub_is_wusb(struct usb_hub *hub)
 }
 
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
 #define PORT_RESET_TRIES	1
 #else //original
 #define PORT_RESET_TRIES	5

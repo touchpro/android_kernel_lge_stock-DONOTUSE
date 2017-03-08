@@ -193,17 +193,24 @@ static int i2c_read(struct i2c_client *client, u8 *reg, int regLen, u8 *buf, int
 
 	int result = TOUCH_SUCCESS;
 	int ret = 0;
-
+	int retry = 0;
+	
 	struct i2c_msg msgs[2] = {
 		{ .addr = client->addr, .flags = 0, .len = regLen, .buf = reg, },
 		{ .addr = client->addr, .flags = I2C_M_RD, .len = dataLen, .buf = buf, },
 	};
-
-	ret = i2c_transfer(client->adapter, msgs, 2);
-	if (ret < 0)
-	{
-		result = TOUCH_FAIL;
-	}
+	
+	do {		
+		ret = i2c_transfer(client->adapter, msgs, 2);				
+		if (ret < 0) {			
+			TOUCH_ERR("i2c retry [%d]\n", retry+1);            			
+			msleep(20);			
+			result = TOUCH_FAIL;		
+		} else {			
+			result = TOUCH_SUCCESS;			
+			return result;		
+		}	
+	} while(++retry < 3);
 
 	return result;
 

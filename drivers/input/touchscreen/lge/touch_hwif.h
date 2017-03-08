@@ -11,7 +11,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the¬
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  */
@@ -58,11 +58,11 @@ struct touch_bus_msg {
 	int tx_size;
 	u8 *rx_buf;
 	int rx_size;
-	u8 bits_per_word;
 };
 
-#define MAX_XFER_BUF_SIZE	(20 * 1024)
-#define MAX_XFER_COUNT	5
+#define MAX_BUF_SIZE	(73 * 1024)
+#define MAX_XFER_BUF_SIZE	(1024)
+#define MAX_XFER_COUNT	15
 
 struct touch_xfer_data_t {
 	u16 addr;
@@ -78,7 +78,6 @@ struct touch_xfer_data {
 
 struct touch_xfer_msg {
 	struct touch_xfer_data data[MAX_XFER_COUNT];
-	u8 bits_per_word;
 	u8 msg_count;
 };
 
@@ -92,7 +91,7 @@ extern int touch_request_irq(unsigned int irq, irq_handler_t handler,
 extern void touch_resend_irq(unsigned int irq);
 extern void touch_set_irq_pending(unsigned int irq);
 extern int touch_boot_mode(void);
-extern int touch_mfts_mode_check(struct device *dev);
+extern int touch_boot_mode_check(struct device *dev);
 extern int touch_bus_init(struct device *dev, int buf_size);
 extern int touch_bus_read(struct device *dev, struct touch_bus_msg *msg);
 extern int touch_bus_write(struct device *dev, struct touch_bus_msg *msg);

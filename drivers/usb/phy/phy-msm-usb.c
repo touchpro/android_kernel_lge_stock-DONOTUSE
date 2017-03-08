@@ -69,6 +69,11 @@
 #ifdef CONFIG_LGE_PM
 #include <linux/power_supply.h>
 #endif
+
+#ifdef CONFIG_LGE_TOUCH_CORE
+#include <linux/input/lge_touch_notify.h>
+#endif
+
 #ifdef CONFIG_LGE_USB_G_DISABLE_USBID_PULL_UP
 static enum lge_boot_mode_type lge_boot_mode;
 #endif
@@ -96,7 +101,7 @@ static enum lge_boot_mode_type lge_boot_mode;
 
 #define USB_SUSPEND_DELAY_TIME	(500 * HZ/1000) /* 500 msec */
 
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 void lge_change_usb_mode(int on);
 #define LGE_USB_HOST 1
 #define LGE_USB_DEVICE 0
@@ -139,7 +144,7 @@ module_param(adc_meas_interval, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(adc_meas_interval, "ADC ID polling period");
 #endif
 
-#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_USB_TYPE_A)
 static char *override_phy_host_init;
 module_param(override_phy_host_init, charp, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(override_phy_host_init,"Override HSUSB HOST PHY Init Settings");
@@ -173,22 +178,21 @@ static bool mhl_det_in_progress;
 static struct regulator *hsusb_3p3;
 static struct regulator *hsusb_1p8;
 static struct regulator *hsusb_vdd;
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
+#if !defined(CONFIG_LGE_USB_TYPE_A) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
 static struct regulator *vbus_otg;
 #endif
 static struct regulator *mhl_usb_hs_switch;
 static struct power_supply *psy;
 
-#if defined(CONFIG_CHG_DETECTOR_MAX14656)
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
-static int max14656_dcd_timeout;
-#define MAX14656_DCD_TIMEOUT_CNT_MAX 7
-#endif
-static struct power_supply *max14656_psy;
+
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
+#define DCD_TIMEOUT_CNT_MIN 6
+#define DCD_TIMEOUT_CNT_MAX 30
 #endif
 
-#if defined(CONFIG_LGE_USB_CHARGING_SPEC_VZW)
-#define DCD_TIMEOUT_CNT_MAX 5
+#if defined(CONFIG_CHG_DETECTOR_MAX14656)
+static int max14656_dcd_timeout;
+static struct power_supply *max14656_psy;
 #endif
 
 static bool aca_id_turned_on;
@@ -543,7 +547,7 @@ static void ulpi_init(struct msm_otg *motg)
 	}
 }
 
-#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_USB_TYPE_A)
 static void ulpi_host_init(struct msm_otg *motg)
 {
         struct msm_otg_platform_data *pdata = motg->pdata;
@@ -1993,6 +1997,10 @@ static void msm_otg_notify_host_mode(struct msm_otg *motg, bool host_mode)
 	}
 }
 
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
+static int msm_otg_notify_power_supply(struct msm_otg *motg, unsigned mA);
+#endif
+
 static int msm_otg_notify_chg_type(struct msm_otg *motg)
 {
 #ifdef CONFIG_LGE_PM
@@ -2004,9 +2012,38 @@ static int msm_otg_notify_chg_type(struct msm_otg *motg)
 	 * TODO
 	 * Unify OTG driver charger types and power supply charger types
 	 */
+
 	if (charger_type == motg->chg_type)
 		return 0;
-
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
+	if (motg->chg_type == USB_SDP_CHARGER)
+		charger_type = POWER_SUPPLY_TYPE_USB;
+	else if (motg->chg_type == USB_CDP_CHARGER)
+		charger_type = POWER_SUPPLY_TYPE_USB_CDP;
+	else if (motg->chg_type == USB_DCP_CHARGER ||
+			motg->chg_type == USB_PROPRIETARY_CHARGER)
+		charger_type = POWER_SUPPLY_TYPE_USB_DCP;
+	else if ((motg->chg_type == USB_ACA_DOCK_CHARGER ||
+		motg->chg_type == USB_ACA_A_CHARGER ||
+		motg->chg_type == USB_ACA_B_CHARGER ||
+		motg->chg_type == USB_ACA_C_CHARGER))
+		charger_type = POWER_SUPPLY_TYPE_USB_ACA;
+	else if (motg->chg_type == USB_FLOATED_CHARGER) {
+//		charger_type = POWER_SUPPLY_TYPE_USB_DCP;
+		charger_type = POWER_SUPPLY_TYPE_USB;
+//		power_supply_set_floated_charger(&motg->usb_psy, 1);
+		if (motg->dcd_timeout_cnt == DCD_TIMEOUT_CNT_MIN) {
+			pr_info("assumed as floated charger\n");
+			power_supply_set_floated_charger(&motg->usb_psy, 1);
+//			power_supply_set_floated_charger(&motg->usb_psy, 2);
+			msm_otg_notify_power_supply(motg, IDEV_CHG_MIN);
+		}
+	}
+	else {
+		charger_type = POWER_SUPPLY_TYPE_UNKNOWN;
+		power_supply_set_floated_charger(&motg->usb_psy, 0);
+	}
+#else
 #if defined(CONFIG_LGE_PM_CHARGING_BQ24262_CHARGER) && !defined(CONFIG_LGE_PM_CHARGING_BQ24296_SUB_CHARGER)
 	if (motg->chg_type == USB_SDP_CHARGER ||
 			motg->chg_type == USB_FLOATED_CHARGER)
@@ -2034,15 +2071,22 @@ static int msm_otg_notify_chg_type(struct msm_otg *motg)
 		charger_type = POWER_SUPPLY_TYPE_USB_ACA;
 	else
 		charger_type = POWER_SUPPLY_TYPE_UNKNOWN;
-
+#endif //CONFIG_LGE_PM_FLOATED_CHARGER
 	if (!psy) {
 		pr_err("No USB power supply registered!\n");
 		return -EINVAL;
 	}
 
 #ifdef CONFIG_LGE_PM
-	if (prev_charger_type == charger_type)
+	if (prev_charger_type == charger_type) {
+#ifdef CONFIG_LGE_PM_FLOATED_CHARGER
+		if (motg->dcd_timeout_cnt != DCD_TIMEOUT_CNT_MIN) {
+			return 0;
+		}
+#else
 		return 0;
+#endif
+	}
 	prev_charger_type = charger_type;
 #endif
 
@@ -2323,15 +2367,15 @@ static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 #ifdef CONFIG_LGE_PM
 	if (mA > 2 && lge_pm_get_cable_type() != NO_INIT_CABLE) {
 		if (motg->chg_type == USB_SDP_CHARGER) {
-#ifdef CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ
-			if (lge_pm_get_cable_type() == CABLE_56K ||
-				lge_pm_get_cable_type() == CABLE_130K ||
-				lge_pm_get_cable_type() == CABLE_910K)
-#endif
 			mA = lge_pm_get_usb_current();
 		} else if (motg->chg_type == USB_DCP_CHARGER) {
 			mA = lge_pm_get_ta_current();
 		} else if (motg->chg_type == USB_FLOATED_CHARGER) {
+#ifdef CONFIG_LGE_PM_FLOATED_CHARGER
+            if (lge_pm_get_cable_type() == CABLE_56K ||
+                lge_pm_get_cable_type() == CABLE_130K ||
+                lge_pm_get_cable_type() == CABLE_910K)
+#endif
 			mA = lge_pm_get_usb_current();
 		}
 	}
@@ -2346,7 +2390,9 @@ static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 
 	if (motg->cur_power == mA)
 		return;
-
+#ifdef CONFIG_LGE_TOUCH_CORE
+	touch_notify_connect(motg->chg_type);
+#endif
 	dev_info(motg->phy.dev, "Avail curr from USB = %u\n", mA);
 	msm_otg_dbg_log_event(&motg->phy, "AVAIL CURR FROM USB",
 			mA, motg->chg_type);
@@ -2356,9 +2402,6 @@ static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 	 *  to legacy pm8921 API.
 	 */
 
-#if defined(CONFIG_MACH_MSM8939_ALTEV2_VZW)
-	if (mA != 100)
-#endif
 	if (msm_otg_notify_power_supply(motg, mA))
 		pm8921_charger_vbus_draw(mA);
 
@@ -2395,7 +2438,7 @@ static void msm_otg_start_host(struct usb_otg *otg, int on)
 
 	if (on) {
 		dev_dbg(otg->phy->dev, "host on\n");
-#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_G_MSM_OTG_ENABLE) || defined(CONFIG_LGE_USB_TYPE_A)
                 ulpi_host_init(motg);
 #endif
 		msm_otg_dbg_log_event(&motg->phy, "HOST ON",
@@ -2405,7 +2448,7 @@ static void msm_otg_start_host(struct usb_otg *otg, int on)
 			ulpi_write(otg->phy, OTG_COMP_DISABLE,
 				ULPI_SET(ULPI_PWR_CLK_MNG_REG));
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
 		lge_change_usb_mode(LGE_USB_HOST);
 #endif
 		usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);
@@ -2425,11 +2468,8 @@ static void msm_otg_start_host(struct usb_otg *otg, int on)
 	}
 }
 
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 int usb_device_exist = 0;
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2_NOTIFY
-int notify_lcd_state_to_usb_sleep = 0;
-#endif
 #endif
 
 static int msm_otg_usbdev_notify(struct notifier_block *self,
@@ -2455,7 +2495,7 @@ static int msm_otg_usbdev_notify(struct notifier_block *self,
 
 	switch (action) {
 	case USB_DEVICE_ADD:
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 		usb_device_exist++;
 		pr_info("USB_DEVICE_ADD usb_device_exist = %d\n", usb_device_exist);
 #endif
@@ -2486,7 +2526,7 @@ static int msm_otg_usbdev_notify(struct notifier_block *self,
 			msm_otg_del_timer(motg);
 		break;
 	case USB_DEVICE_REMOVE:
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 		usb_device_exist--;
 		pr_info("USB_DEVICE_REMOVE usb_device_exist =  %d\n", usb_device_exist);
 #endif
@@ -2520,7 +2560,7 @@ out:
 
 static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 {
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
+#if !defined(CONFIG_LGE_USB_TYPE_A) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
 	int ret;
 #endif
 	static bool vbus_is_on;
@@ -2529,7 +2569,7 @@ static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 	if (vbus_is_on == on)
 		return;
 
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
+#if !defined(CONFIG_LGE_USB_TYPE_A) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
 	if (motg->pdata->vbus_power) {
 		ret = motg->pdata->vbus_power(on);
 		if (!ret)
@@ -2553,7 +2593,7 @@ static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 	 */
 	if (on) {
 		msm_otg_notify_host_mode(motg, on);
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
+#if !defined(CONFIG_LGE_USB_TYPE_A) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
 		ret = regulator_enable(vbus_otg);
 		if (ret) {
 			pr_err("unable to enable vbus_otg\n");
@@ -2562,7 +2602,7 @@ static void msm_hsusb_vbus_power(struct msm_otg *motg, bool on)
 #endif
 		vbus_is_on = true;
 	} else {
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
+#if !defined(CONFIG_LGE_USB_TYPE_A) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
 		ret = regulator_disable(vbus_otg);
 		if (ret) {
 			pr_err("unable to disable vbus_otg\n");
@@ -2588,7 +2628,7 @@ static int msm_otg_set_host(struct usb_otg *otg, struct usb_bus *host)
 		return -ENODEV;
 	}
 
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
+#if !defined(CONFIG_LGE_USB_TYPE_A) && !defined (CONFIG_LGE_USB_G_MSM_OTG_ENABLE)
 	if (!motg->pdata->vbus_power && host) {
 		vbus_otg = devm_regulator_get(motg->phy.dev, "vbus_otg");
 		if (IS_ERR(vbus_otg)) {
@@ -2659,7 +2699,7 @@ static void msm_otg_start_peripheral(struct usb_otg *otg, int on)
 		msm_otg_dbg_log_event(&motg->phy, "GADGET ON",
 				motg->inputs, otg->phy->state);
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
 		ulpi_init(motg);
 		lge_change_usb_mode(LGE_USB_DEVICE);
 #endif
@@ -2991,7 +3031,7 @@ static void msm_otg_chg_check_timer_func(unsigned long data)
 		!test_bit(B_SESS_VLD, &motg->inputs) ||
 		otg->phy->state != OTG_STATE_B_PERIPHERAL ||
 		otg->gadget->speed != USB_SPEED_UNKNOWN) {
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER) && defined(CONFIG_CHG_DETECTOR_MAX14656)
 		if (otg->phy->state == OTG_STATE_A_HOST) {
 			msm_otg_notify_charger(motg, IDEV_CHG_MIN);
 		}
@@ -3575,7 +3615,6 @@ static void msm_chg_detect_work(struct work_struct *w)
 }
 
 #if defined(CONFIG_CHG_DETECTOR_MAX14656)
-
 extern int max14656_charger_type;
 
 static void lge_chg_detect_work(struct work_struct *w)
@@ -3642,9 +3681,8 @@ static void lge_chg_detect_work(struct work_struct *w)
 #ifdef CONFIG_LGE_PM
 			lge_pm_read_cable_info(motg->vadc_dev);
 #endif
-			msm_otg_notify_chg_type(motg);
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER) && defined(CONFIG_CHG_DETECTOR_MAX14656)
 			max14656_psy->get_property(max14656_psy,
 					POWER_SUPPLY_PROP_USB_DCD_TIMEOUT, &dcd_timeout);
 			max14656_dcd_timeout = dcd_timeout.intval;
@@ -3655,15 +3693,18 @@ static void lge_chg_detect_work(struct work_struct *w)
 				motg->chg_type = USB_SDP_CHARGER;
 			} else if (max14656_charger_type && motg->chg_type == 0) {
 				motg->chg_type = max14656_charger_type;
+			} else if (max14656_dcd_timeout && max14656_charger_type == USB_SDP_CHARGER) {
+				motg->chg_type = USB_FLOATED_CHARGER;
 			}
 #endif
+			msm_otg_notify_chg_type(motg);
 			queue_work(system_nrt_wq, &motg->sm_work);
 			return;
 		default:
 			return;
 	}
 
-	if (motg->chg_det_cnt > 4) {
+	if (motg->chg_det_cnt > 10) {
 		pr_err("chg det cnt overflow\n");
 		motg->chg_det_cnt = 0;
 		return;
@@ -3740,10 +3781,6 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 			 */
 			ret = wait_for_completion_timeout(&pmic_vbus_init,
 							  VBUS_INIT_TIMEOUT);
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2_NOTIFY
-			pr_info("for initial state ID set\n");
-			set_bit(ID, &motg->inputs);
-#endif
 			if (!ret) {
 				dev_dbg(motg->phy.dev, "%s: timeout waiting for PMIC VBUS\n",
 					__func__);
@@ -3833,12 +3870,9 @@ do_wait:
 	}
 }
 
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 void lge_set_peripheral_mode(void);
 void lge_set_host_mode(void);
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2_NOTIFY
-void notify_lcd_state_to_usb(int on);
-#endif
 #endif
 
 static void msm_otg_sm_work(struct work_struct *w)
@@ -3945,15 +3979,31 @@ static void msm_otg_sm_work(struct work_struct *w)
 					pm_runtime_put_sync(otg->phy->dev);
 					break;
 				case USB_FLOATED_CHARGER:
-#if defined(CONFIG_LGE_USB_CHARGING_SPEC_VZW)
+#ifdef CONFIG_LGE_PM_FLOATED_CHARGER
+					if(!motg->dcd_timeout_cnt) {
+						msm_otg_notify_charger(motg, IUNIT);
+					}
+#endif
+
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
+#if defined(CONFIG_CHG_DETECTOR_MAX14656)
+					if (max14656_dcd_timeout && !lge_get_factory_boot()) {
+#else
 					motg->dcd_timeout = motg->dcd_time >= MSM_CHG_DCD_TIMEOUT;
 					if(motg->dcd_timeout) {
+#endif
+						pr_info("motg->dcd_timeout_cnt = %d\n", motg->dcd_timeout_cnt);
 						if (motg->dcd_timeout_cnt < DCD_TIMEOUT_CNT_MAX) {
 							motg->dcd_timeout_cnt++;
 							motg->chg_state = USB_CHG_STATE_UNDEFINED;
+#if defined(CONFIG_CHG_DETECTOR_MAX14656)
+							power_supply_set_chg_type_manual(max14656_psy, 1);
+							lge_chg_detect_work(&motg->lge_chg_work.work);
+#else
 							msm_chg_detect_work(&motg->chg_work.work);
+#endif
 						} else {
-							power_supply_set_floated_charger(&motg->usb_psy, 1);
+							pr_info("counter for checking dcd timeout is expired\n");
 						}
 						break;
 					}
@@ -4015,27 +4065,11 @@ static void msm_otg_sm_work(struct work_struct *w)
 						OTG_STATE_B_PERIPHERAL;
 					break;
 				case USB_SDP_CHARGER:
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
-					if (max14656_dcd_timeout && !lge_get_factory_boot()) {
-						pr_debug("max14656_dcd_timeout = %d, motg->dcd_timeout_cnt = %d\n", max14656_dcd_timeout, motg->dcd_timeout_cnt);
-						if (motg->dcd_timeout_cnt < MAX14656_DCD_TIMEOUT_CNT_MAX) {
-							motg->dcd_timeout_cnt++;
-							motg->chg_state = USB_CHG_STATE_UNDEFINED;
-							power_supply_set_chg_type_manual(max14656_psy, 1);
-							lge_chg_detect_work(&motg->lge_chg_work.work);
-						} else {
-							power_supply_set_floated_charger(&motg->usb_psy, 1);
-						}
-						break;
-					}
-#endif
 #ifdef CONFIG_LGE_PM
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
-                                        msm_otg_notify_charger(motg,
-                                                        IUNIT);
+#if defined(CONFIG_LGE_USB_CHARGING_SPEC_VZW)
+                    msm_otg_notify_charger(motg, IUNIT);
 #else
-                                        msm_otg_notify_charger(motg,
-                                                        IDEV_CHG_MIN);
+                    msm_otg_notify_charger(motg, IDEV_CHG_MIN);
 #endif
 #endif
 
@@ -4078,8 +4112,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			break;
 		} else {
 			pr_debug("chg_work cancel");
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
-			power_supply_set_floated_charger(&motg->usb_psy, 0);
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 			motg->dcd_timeout_cnt = 0;
 #endif
 			msm_otg_dbg_log_event(&motg->phy, "CHG_WORK CANCEL",
@@ -4112,13 +4145,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			 * before entering into low power mode.
 			 */
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2_NOTIFY)
-			if (notify_lcd_state_to_usb_sleep == 1) {
-				pr_info("go to sleep\n");
-			}
-			else
-#endif
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
 			if (motg->pdata->mode == USB_OTG) {
 				pr_debug("process missed ID intr\n");
 				clear_bit(ID, &motg->inputs);
@@ -4432,7 +4459,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 				msm_otg_start_timer(motg, TA_WAIT_BCON,
 					A_WAIT_BCON);
 
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if !defined(CONFIG_LGE_USB_TYPE_A)
 			/* Clear BSV in host mode */
 			clear_bit(B_SESS_VLD, &motg->inputs);
 #endif
@@ -4483,7 +4510,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			msm_otg_reset(otg->phy);
 		} else if (test_bit(ID_A, &motg->inputs)) {
 			msm_hsusb_vbus_power(motg, 0);
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 		} else if (test_bit(B_SESS_VLD, &motg->inputs)) {
 			pr_info("A_WAIT_BCON, B_SESS_VLD set\n");
 			pr_info("usb_device_exist = %d\n", usb_device_exist);
@@ -4493,21 +4520,37 @@ static void msm_otg_sm_work(struct work_struct *w)
 				break;
 			case USB_CHG_STATE_DETECTED:
 				switch (motg->chg_type) {
-				case USB_SDP_CHARGER:
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
+				case USB_FLOATED_CHARGER:
+#ifdef CONFIG_LGE_PM_FLOATED_CHARGER
+					if(!motg->dcd_timeout_cnt) {
+						msm_otg_notify_charger(motg, IUNIT);
+					}
+#endif
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
+#if defined(CONFIG_CHG_DETECTOR_MAX14656)
 					if (max14656_dcd_timeout && !lge_get_factory_boot()) {
-						pr_debug("max14656_dcd_timeout = %d, motg->dcd_timeout_cnt = %d\n", max14656_dcd_timeout, motg->dcd_timeout_cnt);
-						if (motg->dcd_timeout_cnt < MAX14656_DCD_TIMEOUT_CNT_MAX) {
+#else
+					motg->dcd_timeout = motg->dcd_time >= MSM_CHG_DCD_TIMEOUT;
+					if(motg->dcd_timeout) {
+#endif
+						pr_info("motg->dcd_timeout_cnt = %d\n", motg->dcd_timeout_cnt);
+						if (motg->dcd_timeout_cnt < DCD_TIMEOUT_CNT_MAX) {
 							motg->dcd_timeout_cnt++;
 							motg->chg_state = USB_CHG_STATE_UNDEFINED;
+#if defined(CONFIG_CHG_DETECTOR_MAX14656)
 							power_supply_set_chg_type_manual(max14656_psy, 1);
 							lge_chg_detect_work(&motg->lge_chg_work.work);
+#else
+							msm_chg_detect_work(&motg->chg_work.work);
+#endif
 						} else {
-							power_supply_set_floated_charger(&motg->usb_psy, 1);
+							pr_info("counter for checking dcd timeout is expired\n");
 						}
 						break;
 					}
 #endif
+					break;
+				case USB_SDP_CHARGER:
 					//fall through
 				case USB_CDP_CHARGER:
 					pr_info("SDP or CDP, change usb path\n\n");
@@ -4528,9 +4571,11 @@ static void msm_otg_sm_work(struct work_struct *w)
 #endif
 						bq24262_set_usb_power_supply_type(POWER_SUPPLY_TYPE_USB_DCP);
 #endif
+//					pm_runtime_put_sync(otg->phy->dev);
 					break;
 				case USB_PROPRIETARY_CHARGER:
 					msm_otg_notify_charger(motg, IDEV_CHG_PROPRIETARY);
+//					pm_runtime_put_sync(otg->phy->dev);
 					break;
 				default:
 					break;
@@ -4542,8 +4587,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			}
 		} else if (!test_bit(A_BUS_REQ, &motg->inputs) || !test_bit(B_SESS_VLD, &motg->inputs)) {
 			if (!test_bit(B_SESS_VLD, &motg->inputs)) {
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
-				power_supply_set_floated_charger(&motg->usb_psy, 0);
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 				motg->dcd_timeout_cnt = 0;
 #endif
 				pr_info("A_WAIT_BCON, !b_sess_vld\n");
@@ -4634,7 +4678,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 					0);
 				pm_runtime_put_sync(otg->phy->dev);
             }
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 		} else if (test_bit(B_SESS_VLD, &motg->inputs)) {
 			pr_info("A_HOST, B_SESS_VLD set\n");
 			pr_info("usb_device_exist = %d\n", usb_device_exist);
@@ -4645,27 +4689,43 @@ static void msm_otg_sm_work(struct work_struct *w)
 
 			case USB_CHG_STATE_DETECTED:
 				switch (motg->chg_type) {
-				case USB_SDP_CHARGER:
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
+                case USB_FLOATED_CHARGER:
+#ifdef CONFIG_LGE_PM_FLOATED_CHARGER
+					if(!motg->dcd_timeout_cnt) {
+						msm_otg_notify_charger(motg, IUNIT);
+					}
+#endif
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
+#if defined(CONFIG_CHG_DETECTOR_MAX14656)
 					if (max14656_dcd_timeout && !lge_get_factory_boot()) {
-						pr_debug("max14656_dcd_timeout = %d, motg->dcd_timeout_cnt = %d\n", max14656_dcd_timeout, motg->dcd_timeout_cnt);
-						if (motg->dcd_timeout_cnt < MAX14656_DCD_TIMEOUT_CNT_MAX) {
+#else
+					motg->dcd_timeout = motg->dcd_time >= MSM_CHG_DCD_TIMEOUT;
+					if(motg->dcd_timeout) {
+#endif
+						pr_info("motg->dcd_timeout_cnt = %d\n", motg->dcd_timeout_cnt);
+						if (motg->dcd_timeout_cnt < DCD_TIMEOUT_CNT_MAX) {
 							motg->dcd_timeout_cnt++;
 							motg->chg_state = USB_CHG_STATE_UNDEFINED;
+#if defined(CONFIG_CHG_DETECTOR_MAX14656)
 							power_supply_set_chg_type_manual(max14656_psy, 1);
 							lge_chg_detect_work(&motg->lge_chg_work.work);
+#else
+							msm_chg_detect_work(&motg->chg_work.work);
+#endif
 						} else {
-							power_supply_set_floated_charger(&motg->usb_psy, 1);
+							pr_info("counter for checking dcd timeout is expired\n");
 						}
 						break;
 					}
 #endif
+					break;
+				case USB_SDP_CHARGER:
 					// fall through
 				case USB_CDP_CHARGER:
 					if (usb_device_exist > 0) {
 						pr_info("Do nothing, usb_device_exist = %d\n", usb_device_exist);
 						if (motg->chg_type == USB_SDP_CHARGER) {
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 							msm_otg_notify_charger(motg, IUNIT);
 							mod_timer(&motg->chg_check_timer, CHG_RECHECK_DELAY);
 #endif
@@ -4733,14 +4793,6 @@ static void msm_otg_sm_work(struct work_struct *w)
 					motg->inputs, otg->phy->state);
 			msm_otg_del_timer(motg);
 			otg->phy->state = OTG_STATE_A_WAIT_BCON;
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2_NOTIFY)
-			if (notify_lcd_state_to_usb_sleep) {
-				pr_info("lcd state is off in A_HOST, go to device mode\n");
-				set_bit(ID, &motg->inputs);
-				msm_otg_sm_work(&motg->sm_work);
-				work=1;
-			}
-#endif
 			if (TA_WAIT_BCON > 0)
 				msm_otg_start_timer(motg, TA_WAIT_BCON,
 					A_WAIT_BCON);
@@ -4755,7 +4807,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			else
 				msm_otg_notify_charger(motg,
 						IDEV_CHG_MIN - motg->mA_port);
-#if !defined(CONFIG_MACH_MSM8939_ALTEV2_VZW)
+#if !defined(CONFIG_LGE_USB_TYPE_A)
 		} else if (!test_bit(ID, &motg->inputs)) {
 			motg->chg_state = USB_CHG_STATE_UNDEFINED;
 			motg->chg_type = USB_INVALID_CHARGER;
@@ -4764,7 +4816,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 		}
 		break;
 #else
-                } else if (!test_bit(ID, &motg->inputs) || !test_bit(B_SESS_VLD, &motg->inputs)) {
+        } else if (!test_bit(ID, &motg->inputs) || !test_bit(B_SESS_VLD, &motg->inputs)) {
 
 			if(!test_bit(ID, &motg->inputs)) {
 				motg->chg_state = USB_CHG_STATE_UNDEFINED;
@@ -4774,8 +4826,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 			}
 
 			if(!test_bit(B_SESS_VLD, &motg->inputs)) {
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
-	                        power_supply_set_floated_charger(&motg->usb_psy, 0);
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 				motg->dcd_timeout_cnt = 0;
 #endif
 				del_timer_sync(&motg->chg_check_timer);
@@ -4844,14 +4895,13 @@ static void msm_otg_sm_work(struct work_struct *w)
 					IDEV_CHG_MIN - motg->mA_port);
 		} else if (!test_bit(ID, &motg->inputs)) {
 
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 			if (test_bit(B_SESS_VLD, &motg->inputs)) {
 				otg->phy->state = OTG_STATE_A_WAIT_BCON;
 				work = 1;
 				break;
 			}
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ) && defined(CONFIG_CHG_DETECTOR_MAX14656)
-			power_supply_set_floated_charger(&motg->usb_psy, 0);
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 			motg->dcd_timeout_cnt = 0;
 #endif
 			motg->chg_state = USB_CHG_STATE_UNDEFINED;
@@ -5156,7 +5206,7 @@ static void msm_otg_set_vbus_state(int online)
 	trigger_usb_state_from_otg(online);
 #endif
 
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if !defined(CONFIG_LGE_USB_TYPE_A)
 	/* do not queue state m/c work if id is grounded */
 	if (!test_bit(ID, &motg->inputs)) {
 		/*
@@ -5675,7 +5725,7 @@ static int otg_power_get_property_usb(struct power_supply *psy,
 	return 0;
 }
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 static int lge_power_set_event_property_usb(struct power_supply *psy,
                                         enum power_supply_event_type psp,
                                         const union power_supply_propval *val)
@@ -6290,7 +6340,7 @@ static ssize_t dpdm_pulldown_enable_store(struct device *dev,
 static DEVICE_ATTR(dpdm_pulldown_enable, S_IRUGO | S_IWUSR,
 		dpdm_pulldown_enable_show, dpdm_pulldown_enable_store);
 
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 static ssize_t hub_enable_store(struct device *dev,
                 struct device_attribute *attr, const char
                 *buf, size_t size)
@@ -6380,36 +6430,6 @@ void lge_change_usb_mode(int on) {
 		pr_err("invalid value\n");
 	}
 }
-
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2_NOTIFY
-void notify_lcd_state_to_usb(int on) {
-
-	struct msm_otg *motg = the_msm_otg;
-	struct usb_phy *phy = &motg->phy;
-	struct usb_otg *otg = motg->phy.otg;
-
-
-	pr_info("%s on = %d, otg_state = %s\n",__func__, on, usb_otg_state_string(phy->state));
-	if (on)
-	{
-		notify_lcd_state_to_usb_sleep = 0;
-		if(otg->phy->state == OTG_STATE_B_IDLE)
-		{
-			clear_bit(ID, &motg->inputs);
-			msm_otg_sm_work(&motg->sm_work);
-		}
-	}
-	else
-	{
-		notify_lcd_state_to_usb_sleep = 1;
-		if(otg->phy->state == OTG_STATE_A_WAIT_BCON)
-		{
-			set_bit(ID, &motg->inputs);
-			msm_otg_sm_work(&motg->sm_work);
-		}
-	}
-}
-#endif
 #endif
 
 struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
@@ -6434,7 +6454,7 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 				len/sizeof(*pdata->phy_init_seq));
 	}
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
         of_get_property(node, "qcom,hsusb-otg-phy-init-host-seq", &len);
         if (len) {
                 pdata->phy_init_host_seq = devm_kzalloc(&pdev->dev, len, GFP_KERNEL);
@@ -6448,7 +6468,7 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 
 	of_property_read_u32(node, "qcom,hsusb-otg-power-budget",
 				&pdata->power_budget);
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if !defined(CONFIG_LGE_USB_TYPE_A)
 	of_property_read_u32(node, "qcom,hsusb-otg-mode",
 				&pdata->mode);
 #else
@@ -6497,7 +6517,7 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 #endif
 		pr_err("usb_id_gpio is not available\n");
 	}
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 	pdata->hub_res_gpio = of_get_named_gpio(node, "qcom,hubres-gpio", 0);
 	if (pdata->hub_res_gpio < 0)
 		pr_err("hub_res_gpio is not available\n");
@@ -7033,7 +7053,7 @@ static int msm_otg_probe(struct platform_device *pdev)
 	phy->otg->start_hnp = msm_otg_start_hnp;
 	phy->otg->start_srp = msm_otg_start_srp;
 
-#if defined(CONFIG_LGE_PM_CHARGING_VZW_POWER_REQ)
+#if defined(CONFIG_LGE_PM_FLOATED_CHARGER)
 	motg->usb_psy.set_event_property = lge_power_set_event_property_usb;
 #endif
 
@@ -7140,7 +7160,7 @@ static int msm_otg_probe(struct platform_device *pdev)
 #endif
 	}
 
-#ifdef CONFIG_LGE_STANDARD_USB_A_ALTEV2
+#ifdef CONFIG_LGE_USB_TYPE_A
 	if(gpio_is_valid(motg->pdata->hub_res_gpio)) {
 		ret = gpio_request(motg->pdata->hub_res_gpio, "HUB_RES_GPIO");
 	} else {
@@ -7184,7 +7204,7 @@ static int msm_otg_probe(struct platform_device *pdev)
 		dev_dbg(&pdev->dev, "mode debugfs file is"
 			"not available\n");
 
-#if !defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if !defined(CONFIG_LGE_USB_TYPE_A)
 	if (motg->pdata->otg_control == OTG_PMIC_CONTROL &&
 			(!(motg->pdata->mode == USB_OTG) ||
 #ifdef CONFIG_LGE_USB_G_MSM_OTG_ENABLE
@@ -7205,7 +7225,7 @@ static int msm_otg_probe(struct platform_device *pdev)
 
 	device_create_file(&pdev->dev, &dev_attr_dpdm_pulldown_enable);
 
-#if defined(CONFIG_LGE_STANDARD_USB_A_ALTEV2)
+#if defined(CONFIG_LGE_USB_TYPE_A)
 	device_create_file(&pdev->dev, &dev_attr_hub_enable);
 	device_create_file(&pdev->dev, &dev_attr_hub_en_force_on);
 #endif

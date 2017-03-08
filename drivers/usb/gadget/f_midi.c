@@ -95,6 +95,7 @@ struct f_midi {
 #ifdef CONFIG_LGE_USB_G_ANDROID
 static struct f_midi _midi;
 #endif
+
 static inline struct f_midi *func_to_midi(struct usb_function *f)
 {
 	return container_of(f, struct f_midi, func);
@@ -450,6 +451,7 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 #ifdef CONFIG_LGE_USB_G_ANDROID
 	int i;
 #endif
+
 	DBG(cdev, "unbind\n");
 
 	/* just to be sure */
@@ -466,6 +468,7 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	kfree(midi->id);
 	midi->id = NULL;
+
 #ifdef CONFIG_LGE_USB_G_ANDROID
 	if (midi->out_ep)
 		midi->out_ep->driver_data = NULL;
@@ -617,7 +620,7 @@ static void f_midi_transmit(struct f_midi *midi, struct usb_request *req)
 #endif
 
 	if (!req) {
-		ERROR(midi, "gmidi_transmit: alloc_ep_request failed\n");
+		ERROR(midi, "gmidi_transmit: midi_alloc_ep_request failed\n");
 		return;
 	}
 	req->length = 0;
@@ -1020,14 +1023,15 @@ int /* __init */ f_midi_bind_config(struct usb_configuration *c,
 			      unsigned int out_ports,
 			      unsigned int buflen,
 			      unsigned int qlen,
-			      struct midi_alsa_config* config)
+			      struct midi_alsa_config *config)
 #else
 int __init f_midi_bind_config(struct usb_configuration *c,
 			      int index, char *id,
 			      unsigned int in_ports,
 			      unsigned int out_ports,
 			      unsigned int buflen,
-			      unsigned int qlen)
+			      unsigned int qlen,
+			      struct midi_alsa_config *config)
 #endif
 {
 	struct f_midi *midi;
@@ -1054,6 +1058,7 @@ int __init f_midi_bind_config(struct usb_configuration *c,
 		goto fail;
 	}
 #endif
+
 	for (i = 0; i < in_ports; i++) {
 		struct gmidi_in_port *port = kzalloc(sizeof(*port), GFP_KERNEL);
 		if (!port) {

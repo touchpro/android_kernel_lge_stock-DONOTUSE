@@ -59,7 +59,9 @@ obj-$(CONFIG_MACH_MSM8939_PH2_GLOBAL_COM) += board-8939-ph2.o
 obj-$(CONFIG_MACH_MSM8916_PH1_SPR_US) += board-8916-ph1.o
 obj-$(CONFIG_MACH_MSM8916_PH1_CRK_US) += board-8916-ph1.o
 obj-$(CONFIG_MACH_MSM8916_K5_GLOBAL_COM) += board-8916-k5.o
+obj-$(CONFIG_MACH_MSM8916_K5_CMO_CN) += board-8916-k5.o
 obj-$(CONFIG_MACH_MSM8916_K5_KR) += board-8916-k5.o
+obj-$(CONFIG_MACH_MSM8916_K5_JP) += board-8916-k5.o
 
 obj-$(CONFIG_MACH_LGE) += devices_lge.o
 obj-$(CONFIG_LGE_PM_CHARGER_TEMP_SCENARIO_COMMON) += lge_charging_scenario.o

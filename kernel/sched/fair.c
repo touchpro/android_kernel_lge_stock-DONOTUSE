@@ -1256,6 +1256,14 @@ unsigned int __read_mostly sched_enable_hmp = 0;
 unsigned int __read_mostly sysctl_sched_spill_nr_run = 10;
 
 /*
+ * A cpu is considered practically idle, if:
+ *
+ *	rq->nr_running <= sysctl_sched_mostly_idle_nr_run &&
+ *	rq->cumulative_runnable_avg <= sched_mostly_idle_load
+ */
+unsigned int __read_mostly sysctl_sched_mostly_idle_nr_run = 3;
+
+/*
  * Control whether or not individual CPU power consumption is used to
  * guide task placement.
  */
@@ -1267,6 +1275,16 @@ unsigned int __read_mostly sched_enable_power_aware = 0;
  * power characteristics (i.e. they are in the same power band).
  */
 unsigned int __read_mostly sysctl_sched_powerband_limit_pct = 20;
+
+/*
+ * Conversion of *_pct to absolute form is based on max_task_load().
+ *
+ * For example:
+ *	sched_mostly_idle_load =
+ *	(sysctl_sched_mostly_idle_load_pct * max_task_load()) / 100;
+ */
+unsigned int __read_mostly sched_mostly_idle_load;
+unsigned int __read_mostly sysctl_sched_mostly_idle_load_pct = 20;
 
 /*
  * CPUs with load greater than the sched_spill_load_threshold are not
@@ -1342,10 +1360,16 @@ static inline int available_cpu_capacity(int cpu)
 	return rq->capacity;
 }
 
+#define pct_to_real(tunable)	\
+		(div64_u64((u64)tunable * (u64)max_task_load(), 100))
+
 void set_hmp_defaults(void)
 {
 	sched_spill_load =
 		pct_to_real(sysctl_sched_spill_load_pct);
+
+	sched_mostly_idle_load =
+		pct_to_real(sysctl_sched_mostly_idle_load_pct);
 
 	sched_small_task =
 		pct_to_real(sysctl_sched_small_task_pct);
@@ -1436,12 +1460,9 @@ spill_threshold_crossed(u64 task_load, u64 cpu_load, struct rq *rq)
 int mostly_idle_cpu(int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
-	int mostly_idle;
 
-	mostly_idle = (cpu_load(cpu) <= rq->mostly_idle_load
-				&& rq->nr_running <= rq->mostly_idle_nr_run);
-
-	return mostly_idle;
+	return (cpu_load(cpu) <= sched_mostly_idle_load
+		&& rq->nr_running <= sysctl_sched_mostly_idle_nr_run);
 }
 
 static int mostly_idle_cpu_sync(int cpu, u64 load, int sync)
@@ -1458,8 +1479,8 @@ static int mostly_idle_cpu_sync(int cpu, u64 load, int sync)
 	if (sync && cpu == smp_processor_id())
 		nr_running--;
 
-	return (load <= rq->mostly_idle_load
-		&& nr_running <= rq->mostly_idle_nr_run);
+	return (load <= sched_mostly_idle_load
+		&& nr_running <= sysctl_sched_mostly_idle_nr_run);
 }
 
 static int boost_refcount;
@@ -2125,17 +2146,38 @@ void post_big_small_task_count_change(const struct cpumask *cpus)
 
 DEFINE_MUTEX(policy_mutex);
 
+#ifdef CONFIG_SCHED_FREQ_INPUT
+static inline int invalid_value_freq_input(unsigned int *data)
+{
+	if (data == &sysctl_sched_migration_fixup)
+		return !(*data == 0 || *data == 1);
+
+	if (data == &sysctl_sched_freq_account_wait_time)
+		return !(*data == 0 || *data == 1);
+
+	return 0;
+}
+#else
+static inline int invalid_value_freq_input(unsigned int *data)
+{
+	return 0;
+}
+#endif
+
 static inline int invalid_value(unsigned int *data)
 {
-	int val = *data;
+	unsigned int val = *data;
 
 	if (data == &sysctl_sched_ravg_hist_size)
 		return (val < 2 || val > RAVG_HIST_SIZE_MAX);
 
 	if (data == &sysctl_sched_window_stats_policy)
-		return (val >= WINDOW_STATS_INVALID_POLICY);
+		return val >= WINDOW_STATS_INVALID_POLICY;
 
-	return 0;
+	if (data == &sysctl_sched_account_wait_time)
+		return !(val == 0 || val == 1);
+
+	return invalid_value_freq_input(data);
 }
 
 /*
@@ -2185,23 +2227,21 @@ int sched_hmp_proc_update_handler(struct ctl_table *table, int write,
 		loff_t *ppos)
 {
 	int ret;
+	unsigned int old_val;
 	unsigned int *data = (unsigned int *)table->data;
-	unsigned int old_val = *data;
 	int update_min_nice = 0;
+
+	mutex_lock(&policy_mutex);
+
+	old_val = *data;
 
 	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
 
 	if (ret || !write || !sched_enable_hmp)
-		return ret;
+		goto done;
 
 	if (write && (old_val == *data))
-		return 0;
-
-	if ((sysctl_sched_downmigrate_pct > sysctl_sched_upmigrate_pct) ||
-				*data > 100) {
-		*data = old_val;
-		return -EINVAL;
-	}
+		goto done;
 
 	if (data == (unsigned int *)&sysctl_sched_upmigrate_min_nice)
 		update_min_nice = 1;
@@ -2209,31 +2249,19 @@ int sched_hmp_proc_update_handler(struct ctl_table *table, int write,
 	if (update_min_nice) {
 		if ((*(int *)data) < -20 || (*(int *)data) > 19) {
 			*data = old_val;
-			return -EINVAL;
+			ret = -EINVAL;
+			goto done;
 		}
-	} else {
-		/* all tunables other than min_nice are in percentage */
-		if (sysctl_sched_downmigrate_pct >
-		    sysctl_sched_upmigrate_pct || *data > 100) {
-			*data = old_val;
-			return -EINVAL;
-		}
-	}
-
-	if (data == (unsigned int *)&sysctl_sched_upmigrate_min_nice)
 		update_min_nice = 1;
-
-	if (update_min_nice) {
-		if ((*(int *)data) < -20 || (*(int *)data) > 19) {
-			*data = old_val;
-			return -EINVAL;
-		}
 	} else {
 		/* all tunables other than min_nice are in percentage */
-		if (sysctl_sched_downmigrate_pct >
-		    sysctl_sched_upmigrate_pct || *data > 100) {
+		if ((sysctl_sched_downmigrate_pct >
+		    sysctl_sched_upmigrate_pct) ||
+		    (sysctl_sched_mostly_idle_load_pct >
+		    sysctl_sched_spill_load_pct) || *data > 100) {
 			*data = old_val;
-			return -EINVAL;
+			ret = -EINVAL;
+			goto done;
 		}
 	}
 
@@ -2259,7 +2287,9 @@ int sched_hmp_proc_update_handler(struct ctl_table *table, int write,
 		put_online_cpus();
 	}
 
-	return 0;
+done:
+	mutex_unlock(&policy_mutex);
+	return ret;
 }
 
 /*
@@ -7374,8 +7404,8 @@ static inline int _nohz_kick_needed_hmp(struct rq *rq, int cpu, int *type)
 	int i;
 
 	if (rq->nr_running >= 2 && (rq->nr_running - rq->nr_small_tasks >= 2 ||
-	     rq->nr_running > rq->mostly_idle_nr_run ||
-		cpu_load(cpu) > rq->mostly_idle_load)) {
+	     rq->nr_running > sysctl_sched_mostly_idle_nr_run ||
+		cpu_load(cpu) > sched_mostly_idle_load)) {
 
 		if (rq->capacity == max_capacity)
 			return 1;

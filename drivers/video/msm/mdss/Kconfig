@@ -43,6 +43,7 @@ config FB_MSM_MDSS_MDP3
 	---help---
 	The MDP3 provides support for an older version display controller
 	included in latest display sub-system, known as MDSS.
+
 config LCD_KCAL
         bool "Enable sysfs for LCD KCAL"
         default n
@@ -72,8 +73,14 @@ config LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL
 config LGD_DONGBU_INCELL_VIDEO_HD_PANEL
 	bool "Enable LGD DONGBU INCELL HD panel"
 	default n
+config LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL
+	bool "Enable LGD M2DONGBU INCELL HD panel"
+	default n
 config LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL
 	bool "Enable LGD PH1DONGBU INCELL HD panel"
+	default n
+config TOVIS_PH1SYNAP_INCELL_VIDEO_HD_PANEL
+	bool "Enable TOVIS PH1SYNAP INCELL HD panel"
 	default n
 config LGE_MIPI_DSI_BYD_ILI9806E_WVGA
 	bool "Enable BYD ILI9806E panel"
@@ -83,8 +90,13 @@ config LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL
 	bool "Enable LGD INCELL DB7400 HD DUAL PANEL"
 	select LGE_MODULE_DETECT
 	default n
+config LGE_DIC_TRIPLE_DETECT
+	bool "Enable LGE_DIC_TRIPLE_DETECT"
+	default n
 
-
+config LGE_READER_MODE
+	bool "LGE reader mode"
+	default n
 config LGE_VSYNC_SKIP
 	bool "MDSS VSYNC Skip scheme"
 	---help---
@@ -151,3 +163,13 @@ config LGE_DISPLAY_POWER_SEQUENCE
 	default n
 	---help---
 	Support panel power sequence
+
+config LGE_DISPLAY_CODE_REFACTORING
+	bool "Enable mdss code refactoring"
+	default n
+
+config LGE_DISPLAY_AOD_SUPPORT
+    bool "Enable always on display"
+    default n
+    ---help---
+    if you say yes here you get support for the 'Always On Display'

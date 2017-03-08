@@ -212,7 +212,7 @@ typedef enum {
 	LPWG_CMD_PROXIMITY_STATUS = 7,
 	LPWG_CMD_FIRST_TWO_TAP = 8,
 	LPWG_CMD_UPDATE_ALL = 9,
-	LPWG_CMD_CALL = 10,
+	LPWG_CMD_CALL = 11,
 } LpwgCmd;
 
 typedef struct LpwgSettingTag {

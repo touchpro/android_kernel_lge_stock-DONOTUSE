@@ -57,3 +57,11 @@ config LGE_KGSL_OFFSET_SEARCH
 	depends on MSM_KGSL
     help
        LGE_KGSL_OFFSET_SEARCH will reduce the code excution time of kgsl_page_alloc_vmfault.
+
+config LGE_PM_GOVERNOR_TUNING
+	bool "Apply Governor tuning"
+	depends on LGE_PM
+	default n
+	help
+	   Say Y to reduce game current, apply governor tuning
+	   if GPUCLK runs at Max clock, throttle a CPUCLK to setting value.

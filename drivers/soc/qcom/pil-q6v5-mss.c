@@ -255,6 +255,41 @@ static void modem_ssr_report_work_fn(struct work_struct *work)
 }
 #endif
 
+#ifdef CONFIG_MACH_MSM8916_PH1
+static void log_modem_debug_info(void) {
+	unsigned char *modem_crash_log;
+	int i, smem_size;
+
+	int size = 1000;
+
+	printk("\n======== Modem Crash Debug Message ========\n");
+
+	modem_crash_log = smem_get_entry(SMEM_ERR_CRASH_LOG, &smem_size, 0 ,0);
+	printk("modem_crash_log addr : 0x%p, size : 0x%x\n", modem_crash_log, smem_size);
+
+	if (!modem_crash_log || !smem_size) {
+		printk("smem_get_entry is failed.\n");
+		return;
+	}
+
+	if (strncmp(modem_crash_log, "ERR", 3) != 0) {
+		printk("Weird Crash Reason, can't find modem crash message.\n");
+		return;
+	}
+
+	printk("modem crash message will be displayed.\n");
+
+	for(i=0; i<size; i++) {
+		 if (readb(modem_crash_log+i) == 'R' && readb(modem_crash_log+i+1) == 'E' && readb(modem_crash_log+i+2) == 'X') {
+			printk("REX string found.\n");
+			break;
+		 }
+		 printk("%c", readb(modem_crash_log+i));
+	}
+	printk("======== Modem Crash Debug Message End ========\n\n");
+}
+#endif
+
 static void log_modem_sfr(void)
 {
 	u32 size;
@@ -278,6 +313,10 @@ static void log_modem_sfr(void)
 
 	strlcpy(reason, smem_reason, min(size, MAX_SSR_REASON_LEN));
 	pr_err("modem subsystem failure reason: %s.\n", reason);
+
+#ifdef CONFIG_MACH_MSM8916_PH1
+	log_modem_debug_info();
+#endif
 
 #ifdef FEATURE_LGE_MODEM_CHIPVER_INFO
 	chip_info_str = smem_get_entry_no_rlock(SMEM_SSR_REASON_MSS1_LG, &chip_info_size, 0,

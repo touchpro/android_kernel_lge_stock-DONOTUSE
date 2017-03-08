@@ -247,7 +247,7 @@ HOSTCXXFLAGS = -O2
 # Decide whether to build built-in, modular, or both.
 # Normally, just do built-in.
 
-KBUILD_MODULES := 1
+KBUILD_MODULES :=
 KBUILD_BUILTIN := 1
 
 #	If we have only "make modules", don't compile built-in objects.
@@ -358,6 +358,7 @@ CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 USERINCLUDE    := \
 		-I$(srctree)/arch/$(hdr-arch)/include/uapi \
 		-Iarch/$(hdr-arch)/include/generated/uapi \
+		-I$(srctree)/drivers/soc/qcom \
 		-I$(srctree)/include/uapi \
 		-Iinclude/generated/uapi \
                 -include $(srctree)/include/linux/kconfig.h

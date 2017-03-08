@@ -86,8 +86,9 @@
 
 #define AXISDATA_REG		(0x28)
 #define WHOAMI_K303B_ACC	(0x41)	/*	Expctd content for WAI	*/
-#define ALL_ZEROES		(0x00)
+#define ALL_ZEROES          (0x00)
 #define K303B_ACC_PM_OFF	(0x00)
+#define K303B_ACC_PM_ON     (0x3F)
 #define ACC_ENABLE_ALL_AXES	(0x07)
 
 /*	CONTROL REGISTERS	*/
@@ -154,6 +155,7 @@
 
 /* CTRL4 */
 #define CTRL4_IF_ADD_INC_EN		(0x04)
+#define CTRL4_FULL_SCALE_4G		(0x20)
 #define CTRL4_BW_SCALE_ODR_AUT	(0x00)
 #define CTRL4_BW_SCALE_ODR_SEL	(0x08)
 #define CTRL4_ANTALIAS_BW_400	(0x00)
@@ -295,7 +297,7 @@ struct k303b_acc_status {
 #ifdef DEBUG
 	u8 reg_addr;
 #endif
-
+	int xyz[3];
 };
 
 static struct k303b_acc_platform_data default_k303b_acc_pdata = {
@@ -311,6 +313,15 @@ static struct k303b_acc_platform_data default_k303b_acc_pdata = {
 	.gpio_int1 = K303B_ACC_DEFAULT_INT1_GPIO,
 };
 
+static inline s64 k303b_get_time_ns(void)
+{
+	struct timespec ts;
+
+	get_monotonic_boottime(&ts);
+
+	return timespec_to_ns(&ts);
+}
+
 /* sets default init values to be written in registers at probe stage */
 static void k303b_acc_set_init_register_values(
 						struct k303b_acc_status *stat)
@@ -322,7 +333,7 @@ static void k303b_acc_set_init_register_values(
 	if (stat->pdata->gpio_int1 >= 0)
 		stat->resume_state[RES_CTRL3] = (stat->resume_state[RES_CTRL3] | CTRL3_IG1_INT1);
 
-	stat->resume_state[RES_CTRL4] = (ALL_ZEROES | CTRL4_IF_ADD_INC_EN);
+	stat->resume_state[RES_CTRL4] = (ALL_ZEROES | CTRL4_IF_ADD_INC_EN | CTRL4_FULL_SCALE_4G);
 
 	stat->resume_state[RES_CTRL5] = (ALL_ZEROES | CTRL5_HLACTIVE_H);
 
@@ -393,10 +404,11 @@ static int k303b_acc_i2c_write(struct k303b_acc_status *stat, u8 *buf, int len)
 static int k303b_acc_hw_init(struct k303b_acc_status *stat)
 {
 	int err = -1;
-	u8 buf[7];
+    u8 buf[7], retry = 3;
 
 	SENSOR_FUN();
 
+err_retry_whoami:
 	buf[0] = WHO_AM_I;
 	err = k303b_acc_i2c_read(stat, buf, 1);
 	if (err < 0) {
@@ -408,7 +420,12 @@ static int k303b_acc_hw_init(struct k303b_acc_status *stat)
 	if (buf[0] != WHOAMI_K303B_ACC) {
 		SENSOR_ERR("device unknown. Expected: 0x%02x, Replies: 0x%02x", WHOAMI_K303B_ACC, buf[0]);
 		err = -1; /* choose the right coded error */
-		goto err_unknown_device;
+        if (--retry <= 0) {
+            goto err_unknown_device;
+        } else {
+            mdelay(5);
+            goto err_retry_whoami;
+        }
 	}
 
 	buf[0] = CTRL4;
@@ -486,13 +503,11 @@ static void k303b_acc_device_power_off(struct k303b_acc_status *stat)
 			disable_irq_nosync(stat->irq1);
 
 		stat->pdata->power_off(stat->pdata);
-		stat->hw_initialized = 0;
 	}
 	if (stat->hw_initialized) {
 		if (stat->pdata->gpio_int1 >= 0)
 			disable_irq_nosync(stat->irq1);
 
-		stat->hw_initialized = 0;
 	}
 
 }
@@ -500,6 +515,8 @@ static void k303b_acc_device_power_off(struct k303b_acc_status *stat)
 static int k303b_acc_device_power_on(struct k303b_acc_status *stat)
 {
 	int err = -1;
+	u8 ctrl1_buf[2] = { CTRL1, K303B_ACC_PM_ON };
+	u8 ctrl4_buf[2] = { CTRL4, ALL_ZEROES | CTRL4_IF_ADD_INC_EN | CTRL4_FULL_SCALE_4G };
 
 	if (stat->pdata->power_on) {
 		err = stat->pdata->power_on(stat->pdata);
@@ -516,9 +533,19 @@ static int k303b_acc_device_power_on(struct k303b_acc_status *stat)
 		if (stat->hw_working == 1 && err < 0) {
 			k303b_acc_device_power_off(stat);
 			return err;
+        }
+    } else {
+		err = k303b_acc_i2c_write(stat, ctrl1_buf, 1);
+		if (err < 0) {
+			dev_err(&stat->client->dev, "soft power on failed: %d\n", err);
+			return err;
+		}
+        err = k303b_acc_i2c_write(stat, ctrl4_buf, 1);
+		if (err < 0) {
+			dev_err(&stat->client->dev, "full scale set failed: %d\n", err);
+			return err;
 		}
 	}
-
 	if (stat->hw_initialized) {
 		/* To remove warning message */
 		//if (stat->pdata->gpio_int1 >= 0)
@@ -526,7 +553,6 @@ static int k303b_acc_device_power_on(struct k303b_acc_status *stat)
 	}
 	return 0;
 }
-
 
 static int k303b_acc_update_fs_range(struct k303b_acc_status *stat, u8 new_fs_range)
 {
@@ -554,7 +580,6 @@ static int k303b_acc_update_fs_range(struct k303b_acc_status *stat, u8 new_fs_ra
 		return -EINVAL;
 	}
 
-
 	/* Updates configuration register 4,
 	* which contains fs range setting */
 	buf[0] = CTRL4;
@@ -579,57 +604,6 @@ error:
 
 	return err;
 }
-
-static int k303b_acc_update_odr(struct k303b_acc_status *stat, int poll_interval_ms)
-{
-	int err;
-	int i;
-	u8 config[2];
-	u8 updated_val;
-	u8 init_val;
-	u8 new_val;
-	u8 mask = ACC_ODR_MASK;
-
-	/* Following, looks for the longest possible odr interval scrolling the
-	 * odr_table vector from the end (shortest interval) backward (longest
-	 * interval), to support the poll_interval requested by the system.
-	 * It must be the longest interval lower then the poll interval.*/
-	for (i = ARRAY_SIZE(k303b_acc_odr_table) - 1; i >= 0; i--) {
-		if ((k303b_acc_odr_table[i].cutoff_ms <= poll_interval_ms) || (i == 0))
-			break;
-	}
-	new_val = k303b_acc_odr_table[i].mask;
-
-	/* Updates configuration register 1,
-	* which contains odr range setting if enabled,
-	* otherwise updates RES_CTRL1 for when it will */
-	if (atomic_read(&stat->enabled)) {
-		config[0] = CTRL1;
-		err = k303b_acc_i2c_read(stat, config, 1);
-		if (err < 0)
-			goto error;
-		init_val = config[0];
-		stat->resume_state[RES_CTRL1] = init_val;
-		updated_val = ((mask & new_val) | ((~mask) & init_val));
-		config[1] = updated_val;
-		config[0] = CTRL1;
-		err = k303b_acc_i2c_write(stat, config, 1);
-		if (err < 0)
-			goto error;
-		stat->resume_state[RES_CTRL1] = updated_val;
-		return err;
-	} else {
-		init_val = stat->resume_state[RES_CTRL1];
-		updated_val = ((mask & new_val) | ((~mask) & init_val));
-		stat->resume_state[RES_CTRL1] = updated_val;
-		return 0;
-	}
-
-error:
-	SENSOR_ERR("update odr failed 0x%02x,0x%02x: %d", config[0], config[1], err);
-	return err;
-}
-
 
 
 static int k303b_acc_register_write(struct k303b_acc_status *stat, u8 *buf, u8 reg_address, u8 new_value)
@@ -704,25 +678,25 @@ static int k303b_acc_get_data(struct k303b_acc_status *stat, int *xyz)
 	return err;
 }
 
-static void k303b_acc_report_values(struct k303b_acc_status *stat, int *xyz)
+static void k303b_acc_report_values(struct k303b_acc_status *stat, s64 timestamp)
 {
-	input_report_abs(stat->input_dev, ABS_X, xyz[0]);
-	input_report_abs(stat->input_dev, ABS_Y, xyz[1]);
-	input_report_abs(stat->input_dev, ABS_Z, xyz[2]);
+	input_report_abs(stat->input_dev, ABS_X, stat->xyz[0]);
+	input_report_abs(stat->input_dev, ABS_Y, stat->xyz[1]);
+	input_report_abs(stat->input_dev, ABS_Z, stat->xyz[2]);
+	input_report_abs(stat->input_dev, ABS_THROTTLE, timestamp >> 32);
+	input_report_abs(stat->input_dev, ABS_RUDDER, timestamp & 0xffffffff);
 	input_sync(stat->input_dev);
 }
 
 static void k303b_acc_report_triple(struct k303b_acc_status *stat)
 {
 	int err;
-	int xyz[3];
 
-	err = k303b_acc_get_data(stat, xyz);
+	err = k303b_acc_get_data(stat, stat->xyz);
 	if (err < 0)
 		SENSOR_ERR("get_data failed");
-	else
-		k303b_acc_report_values(stat, xyz);
 }
+
 #ifdef K303B_ACCEL_CALIBRATION
 static int k303b_read_calibration_data(struct k303b_acc_status *stat)
 {
@@ -826,21 +800,14 @@ static int k303b_acc_enable(struct k303b_acc_status *stat)
 			atomic_set(&stat->enabled, 0);
 			return err;
 		}
+
+		mdelay(10);
+		k303b_acc_report_triple(stat);
+
 		stat->polling_ktime = ktime_set(stat->pdata->poll_interval / 1000,
 				MS_TO_NS(stat->pdata->poll_interval % 1000));
-		hrtimer_start(&stat->hr_timer_poll,
-					stat->polling_ktime, HRTIMER_MODE_REL);
+		hrtimer_start(&stat->hr_timer_poll, ktime_set(0, 0), HRTIMER_MODE_REL);
 	}
-	// Setting scale range : +-/ 4g
-	mutex_lock(&stat->lock);
-	err = k303b_acc_update_fs_range(stat, K303B_ACC_FS_4G);
-	if (err < 0) {
-		mutex_unlock(&stat->lock);
-		return err;
-	}
-	stat->pdata->fs_range = K303B_ACC_FS_4G;
-	mutex_unlock(&stat->lock);
-
 	return 0;
 }
 
@@ -904,7 +871,6 @@ static ssize_t attr_get_polling_rate(struct device *dev, struct device_attribute
 
 static ssize_t attr_set_polling_rate(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
 {
-	int err;
 	struct k303b_acc_status *stat = dev_get_drvdata(dev);
 	unsigned long interval_ms;
 
@@ -915,12 +881,11 @@ static ssize_t attr_set_polling_rate(struct device *dev, struct device_attribute
 	interval_ms = max_t(unsigned int, (unsigned int)interval_ms, stat->pdata->min_interval);
 	mutex_lock(&stat->lock);
 	stat->pdata->poll_interval = interval_ms;
-	err = k303b_acc_update_odr(stat, interval_ms);
-	if (err >= 0) {
-		stat->pdata->poll_interval = interval_ms;
-		stat->polling_ktime = ktime_set(stat->pdata->poll_interval / 1000,
-				MS_TO_NS(stat->pdata->poll_interval % 1000));
-	}
+
+	stat->pdata->poll_interval = interval_ms;
+	stat->polling_ktime = ktime_set(stat->pdata->poll_interval / 1000,
+			MS_TO_NS(stat->pdata->poll_interval % 1000));
+
 	mutex_unlock(&stat->lock);
 	return size;
 }
@@ -1431,7 +1396,7 @@ static int k303b_parse_dt(struct device *dev, struct k303b_acc_platform_data *pd
 static int k303b_store_calibration_data(struct device *dev)
 {
 	struct k303b_acc_status *stat = dev_get_drvdata(dev);
-	unsigned char offset_src[32];
+	unsigned char offset_src[64];
 	int fd_offset;
 	int tmp;
 	mm_segment_t old_fs = get_fs();
@@ -1756,9 +1721,6 @@ static void k303b_acc_input_poll_work_func(struct work_struct *work)
 	//mutex_lock(&stat->lock);
 	k303b_acc_report_triple(stat);
 	//mutex_unlock(&stat->lock);
-
-	if (atomic_read(&stat->enabled))
-		hrtimer_start(&stat->hr_timer_poll, stat->polling_ktime, HRTIMER_MODE_REL);
 }
 
 enum hrtimer_restart k303b_acc_hr_timer_poll_function(struct hrtimer *timer)
@@ -1767,7 +1729,12 @@ enum hrtimer_restart k303b_acc_hr_timer_poll_function(struct hrtimer *timer)
 
 	stat = container_of((struct hrtimer *)timer, struct k303b_acc_status, hr_timer_poll);
 
-	queue_work(stat->hr_timer_poll_work_queue, &stat->input_poll_work);
+	k303b_acc_report_values(stat, k303b_get_time_ns());
+
+	if (atomic_read(&stat->enabled)) {
+		queue_work(stat->hr_timer_poll_work_queue, &stat->input_poll_work);
+		hrtimer_start(&stat->hr_timer_poll, stat->polling_ktime, HRTIMER_MODE_REL);
+	}
 
 	return HRTIMER_NORESTART;
 }
@@ -1856,6 +1823,8 @@ static int k303b_acc_input_init(struct k303b_acc_status *stat)
 	input_set_abs_params(stat->input_dev, ABS_X, G_MIN, G_MAX, FUZZ, FLAT);
 	input_set_abs_params(stat->input_dev, ABS_Y, G_MIN, G_MAX, FUZZ, FLAT);
 	input_set_abs_params(stat->input_dev, ABS_Z, G_MIN, G_MAX, FUZZ, FLAT);
+	input_set_abs_params(stat->input_dev, ABS_THROTTLE, INT_MIN, INT_MAX, 0, 0);
+	input_set_abs_params(stat->input_dev, ABS_RUDDER, INT_MIN, INT_MAX, 0, 0);
 
 	/*	next is used for interruptA sources data if the case */
 	input_set_abs_params(stat->input_dev, ABS_MISC, INT_MIN, INT_MAX, 0, 0);
@@ -1952,10 +1921,14 @@ static int k303b_acc_probe(struct i2c_client *client, const struct i2c_device_id
 	stat->pdata->power_off = k303b_power_off;
 	
 	stat->hr_timer_poll_work_queue = 0;
-	err = k303b_gpio_config(stat);
-	if (err) {
-		SENSOR_ERR("k303b_gpio_config ERROR  = %d", err);
-	}
+
+	/* ADD ST */
+	if (stat->pdata->gpio_int1 >= 0) {
+	    err = k303b_gpio_config(stat);
+	    if (err) {
+			SENSOR_ERR("k303b_gpio_config ERROR  = %d", err);
+	    }
+    }
 
 	err = k303b_acc_validate_pdata(stat);
 	if (err < 0) {
@@ -1988,18 +1961,6 @@ static int k303b_acc_probe(struct i2c_client *client, const struct i2c_device_id
 	}
 
 	atomic_set(&stat->enabled, 1);
-
-	err = k303b_acc_update_fs_range(stat, stat->pdata->fs_range);
-	if (err < 0) {
-		SENSOR_ERR("update_fs_range failed");
-		goto  err_power_off;
-	}
-
-	err = k303b_acc_update_odr(stat, stat->pdata->poll_interval);
-	if (err < 0) {
-		SENSOR_ERR("update_odr failed");
-		goto  err_power_off;
-	}
 
 	stat->hr_timer_poll_work_queue =
 			create_workqueue("k303b_acc_hr_timer_poll_wq");
@@ -2057,11 +2018,10 @@ err_remove_sysfs_int:
 err_input_cleanup:
 	k303b_acc_input_cleanup(stat);
 err_remove_hr_work_queue:
-	if (!stat->hr_timer_poll_work_queue) {
+	if (stat->hr_timer_poll_work_queue) {
 			flush_workqueue(stat->hr_timer_poll_work_queue);
 			destroy_workqueue(stat->hr_timer_poll_work_queue);
 	}
-err_power_off:
 	k303b_acc_device_power_off(stat);
 err_pdata_init:
 //	if (stat->pdata->exit)
@@ -2092,7 +2052,7 @@ static int k303b_acc_remove(struct i2c_client *client)
 
 	sysfs_remove_group(&stat->input_dev->dev.kobj, &k303b_acc_attr_group);
 
-	if (!stat->hr_timer_poll_work_queue) {
+	if (stat->hr_timer_poll_work_queue) {
 			flush_workqueue(stat->hr_timer_poll_work_queue);
 			destroy_workqueue(stat->hr_timer_poll_work_queue);
 	}

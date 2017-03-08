@@ -427,12 +427,6 @@ struct mit_data {
 	int d_min;
 	int j_max;
 	int j_min;
-#if defined(CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD)
-	int j_ave_max;
-	int jitter_max[MIT_SD_CM_JITTER_REPEAT];
-	int jitter_min[MIT_SD_CM_JITTER_REPEAT];
-	int jitter_average_max[MIT_SD_CM_JITTER_REPEAT];
-#endif
 
 	struct class *class;
 	dev_t mip_dev;

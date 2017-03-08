@@ -1555,7 +1555,7 @@ static int sensor_regulator_power_on(struct bmm_client_data *data, bool on)
 		}
 	}
 
-	msleep(130);
+	usleep_range(20000, 21000);
 	SENSOR_LOG("power on");
 	return 0;
 

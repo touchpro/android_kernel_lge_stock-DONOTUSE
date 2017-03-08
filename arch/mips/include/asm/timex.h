@@ -38,6 +38,12 @@ static inline cycles_t get_cycles(void)
 	return 0;
 }
 
+static inline unsigned long random_get_entropy(void)
+{
+     return 0;
+}
+#define random_get_entropy random_get_entropy
+
 #endif /* __KERNEL__ */
 
 #endif /*  _ASM_TIMEX_H */

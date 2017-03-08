@@ -74,6 +74,10 @@ static int set_window_count;
 static int migration_register_count;
 static struct mutex sched_lock;
 
+#ifdef CONFIG_LGE_PM_GOVERNOR_TUNING
+extern int game_level ;
+#endif
+
 /* Target load.  Lower values result in higher CPU speeds. */
 #define DEFAULT_TARGET_LOAD 90
 static unsigned int default_target_loads[] = {DEFAULT_TARGET_LOAD};
@@ -147,6 +151,10 @@ struct cpufreq_interactive_tunables {
 static struct cpufreq_interactive_tunables *common_tunables;
 
 static struct attribute_group *get_sysfs_attr(void);
+
+#ifdef CONFIG_LGE_PM_GOVERNOR_TUNING
+static unsigned int *get_game_tokenized_data(const char *buf, int *num_tokens);
+#endif
 
 /* Round to starting jiffy of next evaluation window */
 static u64 round_to_nw_start(u64 jif,
@@ -403,6 +411,13 @@ static void cpufreq_interactive_timer(unsigned long data)
 	bool boosted;
 	struct cpufreq_govinfo int_info;
 
+#ifdef CONFIG_LGE_PM_GOVERNOR_TUNING
+	int ntokens;
+	unsigned int *new_target_loads = NULL;
+	const char game_target_loads[] = "90 998400:100 1094400:100" ;
+	const char ori_target_loads[] = "1 800000:85 998400:90 1094400:80" ;
+#endif
+
 	if (!down_read_trylock(&pcpu->enable_sem))
 		return;
 
@@ -411,6 +426,27 @@ static void cpufreq_interactive_timer(unsigned long data)
 
 	if (!pcpu->governor_enabled)
 		goto exit;
+
+#ifdef CONFIG_LGE_PM_GOVERNOR_TUNING
+	if ( game_level == 0 )
+	{
+		new_target_loads = get_game_tokenized_data(game_target_loads, &ntokens);
+		tunables->hispeed_freq = 800000 ;
+	}
+	else if ( ( 0 < game_level ) && ( game_level <= 2 ) )
+	{
+		new_target_loads = get_game_tokenized_data(ori_target_loads, &ntokens);
+		tunables->hispeed_freq = 998400 ;
+	}
+	if (IS_ERR(new_target_loads))
+		return ;
+	spin_lock_irqsave(&tunables->target_loads_lock, flags);
+	if (tunables->target_loads != default_target_loads)
+		kfree(tunables->target_loads);
+	tunables->target_loads = new_target_loads;
+	tunables->ntarget_loads = ntokens;
+	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
+#endif
 
 	spin_lock_irqsave(&pcpu->load_lock, flags);
 	pcpu->last_evaluated_jiffy = get_jiffies_64();
@@ -876,6 +912,53 @@ err_kfree:
 err:
 	return ERR_PTR(err);
 }
+
+#ifdef CONFIG_LGE_PM_GOVERNOR_TUNING
+static unsigned int *get_game_tokenized_data(const char *buf, int *num_tokens)
+{
+	const char *cp;
+	int i;
+	int ntokens = 1;
+	unsigned int *tokenized_data;
+	int err = -EINVAL;
+
+	cp = buf;
+	while ((cp = strpbrk(cp + 1, " :")))
+		ntokens++;
+
+	if (!(ntokens & 0x1))
+		goto err;
+
+	tokenized_data = kmalloc(ntokens * sizeof(unsigned int), GFP_ATOMIC);
+	if (!tokenized_data) {
+		err = -ENOMEM;
+		goto err;
+	}
+
+	cp = buf;
+	i = 0;
+	while (i < ntokens) {
+		if (sscanf(cp, "%u", &tokenized_data[i++]) != 1)
+			goto err_kfree;
+
+		cp = strpbrk(cp, " :");
+		if (!cp)
+			break;
+		cp++;
+	}
+
+	if (i != ntokens)
+		goto err_kfree;
+
+	*num_tokens = ntokens;
+	return tokenized_data;
+
+err_kfree:
+	kfree(tokenized_data);
+err:
+	return ERR_PTR(err);
+}
+#endif
 
 static ssize_t show_target_loads(
 	struct cpufreq_interactive_tunables *tunables,

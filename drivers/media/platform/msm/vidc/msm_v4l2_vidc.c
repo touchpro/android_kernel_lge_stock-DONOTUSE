@@ -50,6 +50,9 @@ static inline struct msm_vidc_inst *get_vidc_inst(struct file *filp, void *fh)
 
 #ifdef CONFIG_LGE_UNDERRUN
 static struct pm_qos_request msm_v4l2_vidc_pm_qos_request;
+static int lge_get_v4l2_vidc_pm_qos_request_class(void) {
+	return msm_v4l2_vidc_pm_qos_request.pm_qos_class;
+}
 #endif
 
 static int msm_v4l2_open(struct file *filp)
@@ -70,7 +73,9 @@ static int msm_v4l2_open(struct file *filp)
 	}
 	#ifdef CONFIG_LGE_UNDERRUN
 	dprintk(VIDC_ERR, "msm_vidc: pm_qos_add_request, 1000uSec\n");
-	pm_qos_add_request(&msm_v4l2_vidc_pm_qos_request, PM_QOS_CPU_DMA_LATENCY, 1000);
+	if (lge_get_v4l2_vidc_pm_qos_request_class () == PM_QOS_RESERVED) {
+		pm_qos_add_request(&msm_v4l2_vidc_pm_qos_request, PM_QOS_CPU_DMA_LATENCY, 1000);
+	}
 	#endif
 	clear_bit(V4L2_FL_USES_V4L2_FH, &vdev->flags);
 	filp->private_data = &(vidc_inst->event_handler);

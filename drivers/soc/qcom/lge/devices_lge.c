@@ -17,9 +17,6 @@
 #include <soc/qcom/lge/lge_android_usb.h>
 #endif
 
-#ifdef CONFIG_LGE_QSDL_SUPPORT
-#include <soc/qcom/lge/lge_qsdl.h>
-#endif
 
 #define PROP_VAL_MAX_SIZE 50
 
@@ -613,8 +610,9 @@ int lge_get_factory_boot(void)
 static enum lge_laf_mode_type lge_laf_mode = LGE_LAF_MODE_NORMAL;
 static int __init lge_laf_mode_init(char *s)
 {
-	if (strcmp(s, ""))
+	if (strcmp(s, "") && strcmp(s, "MID")) {
 		lge_laf_mode = LGE_LAF_MODE_LAF;
+    }
 	return 1;
 }
 __setup("androidboot.laf=", lge_laf_mode_init);
@@ -749,25 +747,3 @@ int  lge_get_kswitch_status()
 }
 #endif/* CONFIG_LGE_KSWITCH */
 
-#ifdef CONFIG_LGE_QSDL_SUPPORT
-static struct lge_qsdl_platform_data lge_qsdl_pdata = {
-	.oneshot_read = 0,
-	.using_uevent = 0
-};
-
-static struct platform_device lge_qsdl_device = {
-	.name = LGE_QSDL_DEV_NAME,
-	.id = -1,
-	.dev = {
-		.platform_data = &lge_qsdl_pdata,
-	}
-};
-
-static int  __init lge_add_qsdl_device(void)
-{
-  return platform_device_register(&lge_qsdl_device);
-}
-
-arch_initcall(lge_add_qsdl_device);
-
-#endif /* CONFIG_LGE_QSDL_SUPPORT */

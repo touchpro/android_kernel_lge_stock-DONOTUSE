@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2014, 2016 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -218,8 +218,8 @@ static unsigned int get_krait_evtinfo(unsigned int krait_evt_type,
 			reg += VENUM_BASE_OFFSET;
 	}
 
-        if ((group > 3) || (reg > KRAIT_MAX_L1_REG))
-                return -EINVAL;
+	if ((group > 3) || (reg > KRAIT_MAX_L1_REG))
+		return -EINVAL;
 
 	evtinfo->group_setval = 0x80000000 | (code << (group * 8));
 	evtinfo->groupcode = reg;

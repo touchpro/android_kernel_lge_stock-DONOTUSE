@@ -577,6 +577,15 @@ void __ext4_abort(struct super_block *sb, const char *function,
 		if (EXT4_SB(sb)->s_journal)
 			jbd2_journal_abort(EXT4_SB(sb)->s_journal, -EIO);
 		save_error_info(sb, function, line);
+
+		#ifdef CONFIG_MACH_LGE
+		/* LGE_CHANGE, 2016-11-02, BSP-FS-8909@lge.com
+		 * put panic when ext4 partition (data partition)is remounted as Read Only
+		 */
+		if(!strcmp(EXT4_SB(sb)->s_es->s_volume_name, "data"))
+			panic("EXT4-fs panic from previous error. remounted as RO \n");
+		#endif
+
 	}
 	if (test_opt(sb, ERRORS_PANIC))
 		panic("EXT4-fs panic from previous error\n");

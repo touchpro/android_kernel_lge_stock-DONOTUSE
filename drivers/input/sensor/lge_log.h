@@ -22,7 +22,7 @@
 
 #define DEBUG	1
 
-#ifdef DEBUG
+#if DEBUG
    #define SENSOR_FUN(f)               printk(KERN_NOTICE SENSOR_TAG"[F]""%s\n", __FUNCTION__)
    #define SENSOR_ERR(fmt, args...)    printk(KERN_ERR SENSOR_TAG"[E]""%s %d : "fmt "\n", __FUNCTION__, __LINE__, ##args)
    #define SENSOR_LOG(fmt, args...)    printk(KERN_NOTICE SENSOR_TAG"[L]""%s : "fmt "\n", __FUNCTION__,##args)
@@ -31,7 +31,7 @@
    #define SENSOR_FUN(f)               printk(KERN_NOTICE SENSOR_TAG"[F]""%s\n", __FUNCTION__)
    #define SENSOR_ERR(fmt, args...)    printk(KERN_ERR SENSOR_TAG"[E]""%s %d : "fmt "\n", __FUNCTION__, __LINE__, ##args)
    #define SENSOR_LOG(fmt, args...)    printk(KERN_NOTICE SENSOR_TAG"[L]""%s : "fmt "\n", __FUNCTION__,##args)
-   #define SENSOR_DBG(fmt, args...)    NULL
+   #define SENSOR_DBG(fmt, args...)    (void)0
 #endif
 
 #endif/*__LGE_LOG_H*/

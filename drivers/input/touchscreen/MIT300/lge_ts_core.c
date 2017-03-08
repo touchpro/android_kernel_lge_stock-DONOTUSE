@@ -2297,7 +2297,7 @@ static ssize_t fw_upgrade_store(struct lge_touch_data *ts, const char *buf, size
 		return count;
 	}
 
-	sscanf(buf, "%s", ts->fw_info.path);
+	sscanf(buf, "%127s", ts->fw_info.path);
 
 	while (ts->fw_info.is_downloading);
 
@@ -2453,7 +2453,7 @@ static ssize_t openshort_store(struct lge_touch_data *ts, const char *buf, size_
 	}
 
 	if (ts->pdata->panel_on == POWER_ON || ts->pdata->panel_on == POWER_WAKE) {
-		if (sscanf(buf, "%s", cmd) != 1)
+		if (sscanf(buf, "%127s", cmd) != 1)
 			return -EINVAL;
 
 		value = ts->pdata->check_openshort;
@@ -2495,7 +2495,7 @@ static ssize_t cm_delta_store(struct lge_touch_data *ts, const char *buf, size_t
 		return count;
 	}
 	if (ts->pdata->panel_on == POWER_ON || ts->pdata->panel_on == POWER_WAKE || ts->pdata->lpwg_debug_enable != 0) {
-		if (sscanf(buf, "%s", cmd) != 1)
+		if (sscanf(buf, "%127s", cmd) != 1)
 			return -EINVAL;
 
 		mutex_lock(&ts->thread_lock);
@@ -2532,7 +2532,7 @@ static ssize_t cm_jitter_store(struct lge_touch_data *ts, const char *buf, size_
 		return count;
 	}
 	if (ts->pdata->panel_on == POWER_ON || ts->pdata->panel_on == POWER_WAKE || ts->pdata->lpwg_debug_enable != 0) {
-		if (sscanf(buf, "%s", cmd) != 1)
+		if (sscanf(buf, "%127s", cmd) != 1)
 			return -EINVAL;
 
 		mutex_lock(&ts->thread_lock);
@@ -2570,7 +2570,7 @@ static ssize_t rawdata_store(struct lge_touch_data *ts, const char *buf, size_t 
 		return count;
 	}
 	if (ts->pdata->panel_on == POWER_ON || ts->pdata->panel_on == POWER_WAKE || ts->pdata->lpwg_debug_enable != 0) {
-		if (sscanf(buf, "%s", cmd) != 1)
+		if (sscanf(buf, "%127s", cmd) != 1)
 			return -EINVAL;
 
 		mutex_lock(&ts->thread_lock);
@@ -3453,6 +3453,11 @@ int touch_driver_register_(struct touch_device_driver *driver)
 	if(lge_get_boot_mode() == LGE_BOOT_MODE_CHARGERLOGO) {
 		ret = -EMLINK;
 		TOUCH_INFO_MSG("CHARGERLOGO_MODE, not register touch-driver\n");
+#ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_PH1
+		gpio_direction_output(TOUCH_GPIO_RESET, 0);
+		usleep(2000);
+		TOUCH_INFO_MSG("CHARGERLOGO_MODE, Touch reset pin down(LOW)\n");
+#endif
 		goto chargerlogo_mode;
 	}
 

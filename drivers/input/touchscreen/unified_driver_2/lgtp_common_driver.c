@@ -114,6 +114,9 @@ int touch_maker_id = 0;
 extern int get_display_id(void);
 extern void mip_set_wakeup_by_swipe(struct i2c_client* client, u8 value);
 #endif
+#if defined(ENABLE_SWIPE_MODE)
+extern int wakeup_by_swipe;
+#endif
 
 /****************************************************************************
 * Local Functions
@@ -377,7 +380,7 @@ static void send_uevent(TouchDriverData *pDriverData, u8 eventIndex)
 			pDriverData->reportData.knockCode = 1;
 #if defined(ENABLE_SWIPE_MODE)
 		} else if( eventIndex == UEVENT_SWIPE ) {
-			pDriverData->reportData.knockCode = 1;
+			pDriverData->reportData.swipe = 1;
 #endif
 		} else {
 			TOUCH_WARN("UEVENT_SIGNATURE is not supported\n");
@@ -1040,6 +1043,9 @@ static ssize_t store_lpwg_data(struct i2c_client *client, const char *buf, size_
 	{
 		TOUCH_LOG("LPWG result was informed by CFW ( Code is matched )\n");
 		/* Code is matched, do something for leaving "LPWG Mode" if you need. But normally "Resume" will be triggered soon. */
+        if (pDriverData->reportData.swipe == 0) {
+			wakeup_by_swipe = 0;
+        }
 	}
 	else
 	{
@@ -1049,6 +1055,7 @@ static ssize_t store_lpwg_data(struct i2c_client *client, const char *buf, size_
 	/* clear knock data */
 	pDriverData->reportData.knockOn = 0;
 	pDriverData->reportData.knockCode = 0;
+	pDriverData->reportData.swipe = 0;
 	memset( pDriverData->reportData.knockData, 0x00, sizeof(pDriverData->reportData.knockData) );
 
 	wake_unlock(pWakeLockTouch);
@@ -1246,7 +1253,7 @@ static ssize_t store_upgrade(struct i2c_client *client, const char *buf, size_t 
 	pDriverData->useDefaultFirmware = TOUCH_FALSE;
 
 	memset(pDriverData->fw_image, 0x00, sizeof(pDriverData->fw_image));
-	sscanf(buf, "%s", pDriverData->fw_image);
+	sscanf(buf, "%255s", pDriverData->fw_image);
 
 	queue_delayed_work(touch_wq, &pDriverData->work_upgrade, 0);
 
@@ -1338,7 +1345,7 @@ static ssize_t store_ic_rw(struct i2c_client *client, const char *buf, size_t co
 	int data = 0;
 
 
-	sscanf(buf, "%s %d %d", cmd, &reg, &data);
+	sscanf(buf, "%29s %d %d", cmd, &reg, &data);
 
 	if ((strcmp(cmd, "write") && strcmp(cmd, "read"))) {
 		return count;

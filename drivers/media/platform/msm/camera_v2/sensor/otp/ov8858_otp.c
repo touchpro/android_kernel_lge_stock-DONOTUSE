@@ -48,7 +48,7 @@ static int32_t ov8858_read_otp_memory(struct msm_otp_ctrl_t *o_ctrl,
 
 	ob_info = o_ctrl->oboard_info;
 
-	for (j = 0; j < block->num_map; j++) {
+	for (j = 0; j < block->num_map; j++) {   //num_map is from dtsi
 		if (emap[j].saddr.addr) {
 			ob_info->i2c_slaveaddr = emap[j].saddr.addr;
 			o_ctrl->i2c_client.cci_client->sid =
@@ -117,6 +117,7 @@ static int32_t ov8858_read_otp_memory(struct msm_otp_ctrl_t *o_ctrl,
 				return rc;
 			}
 
+//write start address
 			rc = o_ctrl->i2c_client.i2c_func_tbl->i2c_write(
 					&(o_ctrl->i2c_client),
 					0x3d88,
@@ -197,6 +198,94 @@ static int32_t ov8858_read_otp_memory(struct msm_otp_ctrl_t *o_ctrl,
 	return rc;
 }
 
+/*LGE_CHANGE_S, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
+static int32_t ov8858_write_otp_memory(struct msm_otp_ctrl_t *o_ctrl)
+{
+	int rc = 0;
+
+	struct msm_otp_board_info *ob_info;
+	uint16_t buf = 0;
+	int bank_offset_for_lsc = 0;
+
+      pr_err("%s ENTER\n", __func__);
+
+	if (!o_ctrl) {
+		pr_err("%s o_ctrl is NULL", __func__);
+		return -EINVAL;
+	}
+	ob_info = o_ctrl->oboard_info;
+
+#if 0
+      pr_err("%s num_data = %d\n", __func__, o_ctrl->cal_data.num_data);
+
+	pr_err("%s mapdata = %d\n", __func__, o_ctrl->cal_data.mapdata[0]);
+	pr_err("%s mapdata = %d\n", __func__, o_ctrl->cal_data.mapdata[1]);
+	pr_err("%s mapdata = %d\n", __func__, o_ctrl->cal_data.mapdata[2]);
+#endif
+
+	if(o_ctrl->cal_data.mapdata[1] == 1) {
+		bank_offset_for_lsc = 16;
+	} else if(o_ctrl->cal_data.mapdata[1] == 3) {
+		bank_offset_for_lsc = 269;
+	} else {
+		pr_err("%s %d Invalid otp data\n", __func__, __LINE__);
+		return -EINVAL; 
+	}
+
+	buf = 0;
+	rc = o_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+			&(o_ctrl->i2c_client), 0x5002,
+			&buf, MSM_CAMERA_I2C_BYTE_DATA);
+	if(rc < 0) {
+		pr_err("%s %d i2c fail\n", __func__, __LINE__);
+		return rc;
+	}
+
+	buf &= ~BIT(3);
+	rc = o_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+			&(o_ctrl->i2c_client),
+			0x5002,
+			buf, MSM_CAMERA_I2C_BYTE_DATA);
+	if(rc < 0) {
+		pr_err("%s %d i2c failed\n", __func__, __LINE__);
+		return rc;
+	}
+	msleep(10);
+
+	rc = o_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(
+		&(o_ctrl->i2c_client), 0x5800,
+		&(o_ctrl->cal_data.mapdata[bank_offset_for_lsc]), 240);
+
+	if(rc < 0) {
+		pr_err("%s %d i2c failed\n", __func__, __LINE__);
+		return rc;
+	}
+
+	buf = 0;
+	rc = o_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+			&(o_ctrl->i2c_client), 0x5002,
+			&buf, MSM_CAMERA_I2C_BYTE_DATA);
+	if(rc < 0) {
+		pr_err("%s %d i2c fail\n", __func__, __LINE__);
+		return rc;
+	}
+
+	buf |= BIT(3);
+	rc = o_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+			&(o_ctrl->i2c_client),
+			0x5002,
+			buf, MSM_CAMERA_I2C_BYTE_DATA);
+	if(rc < 0) {
+		pr_err("%s %d i2c failed\n", __func__, __LINE__);
+		return rc;
+	}
+
+      pr_err("%s EXIT\n", __func__);
+	
+	return rc;
+}
+/*LGE_CHANGE_E, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
+
 static int32_t ov8858_otp_checksum(struct msm_otp_ctrl_t *o_ctrl) {
 	int32_t rc = -EFAULT;
 	int bank_offset = 0;
@@ -266,6 +355,7 @@ static struct platform_driver ov8858_otp_platform_driver = {
 struct msm_otp_fn_t ov8858_otp_func = {
 	.otp_read = ov8858_read_otp_memory,
 	.otp_checksum = ov8858_otp_checksum,
+	.otp_write = ov8858_write_otp_memory, /*LGE_CHANGE_S, 20151215, enable lsc sensor calibration, soojong.jin@lge.com*/
 };
 
 static int32_t ov8858_otp_platform_probe(struct platform_device *pdev)

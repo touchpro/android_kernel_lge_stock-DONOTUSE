@@ -11,28 +11,38 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the¬
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  */
+#define TS_MODULE "[spi]"
 
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
-#include "touch_hwif.h"
-#include "touch_core.h"
-#include "touch_spi.h"
+
+/*
+ *  Include to touch core Header File
+ */
+#include <touch_core.h>
+#include <touch_hwif.h>
+#include <touch_spi.h>
 
 int touch_spi_read(struct spi_device *spi, struct touch_bus_msg *msg)
 {
 	struct spi_transfer x = { 0, };
 	struct spi_message m;
 
+	if (msg->rx_size > MAX_BUF_SIZE || msg->tx_size > MAX_BUF_SIZE) {
+		TOUCH_E("buffer overflow\n");
+		return -1;
+	}
+
 	spi_message_init(&m);
 	x.tx_buf = msg->tx_buf;
 	x.rx_buf = msg->rx_buf;
 	x.len = msg->rx_size;
-	x.cs_change = 1;
-	x.bits_per_word = msg->bits_per_word;
+	x.cs_change = 0;
+	x.bits_per_word = spi->bits_per_word;
 	spi_message_add_tail(&x, &m);
 	return spi_sync(spi, &m);
 }
@@ -42,12 +52,17 @@ int touch_spi_write(struct spi_device *spi, struct touch_bus_msg *msg)
 	struct spi_transfer x = { 0, };
 	struct spi_message m;
 
+	if (msg->tx_size > MAX_BUF_SIZE) {
+		TOUCH_E("buffer overflow\n");
+		return -1;
+	}
+
 	spi_message_init(&m);
 	x.tx_buf = msg->tx_buf;
 	x.rx_buf = msg->rx_buf;
 	x.len = msg->tx_size;
-	x.cs_change = 1;
-	x.bits_per_word = msg->bits_per_word;
+	x.cs_change = 0;
+	x.bits_per_word = spi->bits_per_word;
 	spi_message_add_tail(&x, &m);
 	return spi_sync(spi, &m);
 }
@@ -61,7 +76,7 @@ int touch_spi_xfer(struct spi_device *spi, struct touch_xfer_msg *xfer)
 	int i = 0;
 
 	if (xfer->msg_count > MAX_XFER_COUNT) {
-		TOUCH_E("cout exceed\n");
+		TOUCH_E("count exceed\n");
 		return -1;
 	}
 
@@ -72,8 +87,15 @@ int touch_spi_xfer(struct spi_device *spi, struct touch_xfer_msg *xfer)
 		tx = &xfer->data[i].tx;
 		rx = &xfer->data[i].rx;
 
-		x[i].cs_change = 1;
-		x[i].bits_per_word = xfer->bits_per_word;
+		if (tx->size > MAX_XFER_BUF_SIZE || rx->size > MAX_XFER_BUF_SIZE) {
+			TOUCH_E("buffer overflow\n");
+			return -1;
+		}
+
+		if (i < (xfer->msg_count) - 1)
+			x[i].cs_change = 1;
+
+		x[i].bits_per_word = spi->bits_per_word;
 
 		if (rx->size) {
 			x[i].tx_buf = tx->data;
@@ -84,6 +106,7 @@ int touch_spi_xfer(struct spi_device *spi, struct touch_xfer_msg *xfer)
 			x[i].rx_buf = NULL;
 			x[i].len = tx->size;
 		}
+
 		spi_message_add_tail(&x[i], &m);
 	}
 
@@ -116,6 +139,11 @@ static int touch_spi_probe(struct spi_device *spi)
 	TOUCH_I("%s\n, platform ptr = %p\n",
 			__func__, spi->dev.platform_data);
 
+	if (!info) {
+		TOUCH_E("Failed to get touch bus info\n");
+		return -ENODEV;
+	}
+
 	ts = devm_kzalloc(&spi->dev, sizeof(*ts), GFP_KERNEL);
 
 	if (!ts) {
@@ -129,9 +157,12 @@ static int touch_spi_probe(struct spi_device *spi)
 	ts->driver = info->touch_driver;
 	dev_set_drvdata(&spi->dev, ts);
 
+	spi->chip_select = 0;
 	spi->bits_per_word = info->hwif->bits_per_word;
 	spi->mode = info->hwif->spi_mode;
 	spi->max_speed_hz = info->hwif->max_freq;
+	TOUCH_I("%s : %d Mhz, chip_select = %d\n",
+		__func__, spi->max_speed_hz/1000000, spi->chip_select);
 
 	pdev = devm_kzalloc(&spi->dev, sizeof(*pdev), GFP_KERNEL);
 
@@ -210,10 +241,7 @@ static struct spi_device_id touch_id[] = {
 
 int touch_spi_device_init(struct touch_hwif *hwif, void *driver)
 {
-
 	struct touch_bus_info *info;
-
-	TOUCH_TRACE();
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 

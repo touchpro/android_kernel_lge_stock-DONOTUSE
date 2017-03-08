@@ -29,6 +29,7 @@
 #include <linux/spinlock.h>
 #include <linux/iio/sysfs.h>
 #include <linux/async.h>
+#include <linux/time.h>
 #ifdef CONFIG_OF
 #include <linux/regulator/consumer.h>
 #include <linux/of_gpio.h>
@@ -62,6 +63,8 @@ s64 get_time_ns(void)
 	ktime_get_ts(&ts);
 	return timespec_to_ns(&ts);
 }
+
+struct timeval inv_cal_time, inv_cal_time2;
 
 /* This is for compatibility for power state. Should remove once HAL
    does not use power_state sysfs entry */
@@ -373,6 +376,8 @@ static int inv_init_config(struct iio_dev *indio_dev)
 #ifdef LGE_LIGER_SELF_TEST_FLAG
 	st->self_test_exec_state = false;
 #endif
+    do_gettimeofday(&inv_cal_time);
+    do_gettimeofday(&inv_cal_time2);
 	if (INV_ITG3500 != st->chip_type) {
 		st->chip_config.accel_fs = INV_FS_02G;
 		result = inv_i2c_single_write(st, reg->accel_config,
@@ -1489,7 +1494,13 @@ static ssize_t _attr_store(struct device *dev,
 
 	if( this_attr->address == ATTR_RUN_CALIBRATION)
 	{
-		call_usermodehelper( argv[0], argv, envp, UMH_WAIT_EXEC);
+        do_gettimeofday(&inv_cal_time);
+        if(inv_cal_time.tv_sec - inv_cal_time2.tv_sec >= 5)
+        {
+            pr_info("inv_mpu: calibration because interval is  %ld \n", inv_cal_time.tv_sec - inv_cal_time2.tv_sec);
+            call_usermodehelper( argv[0], argv, envp, UMH_WAIT_EXEC);
+            do_gettimeofday(&inv_cal_time2);
+        }
 		return count;
 	}
 

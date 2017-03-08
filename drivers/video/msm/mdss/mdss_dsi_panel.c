@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,6 +23,30 @@
 #include <linux/err.h>
 
 #include "mdss_dsi.h"
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+#include "lge/panel/oem_mdss_dsi_common.h"
+#endif // CONFIG_LGE_DISPLAY_CODE_REFACTORING
+
+#ifdef CONFIG_LGE_READER_MODE
+static int reader_mode_old = 0;
+static int reader_mode_on_off;
+extern struct platform_device *of_find_device_by_node(struct device_node *np);
+struct mdss_panel_data *pdata_base;
+extern struct msm_fb_data_type *mfd_base;
+#include "mdss_mdp.h"
+
+#define READER_MODE_OFF 		0
+#define READER_MODE_STEP_1		1
+#define READER_MODE_STEP_2		2
+#define READER_MODE_STEP_3		3
+#define READER_MODE_MONO		4
+#endif
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+struct mdss_panel_data *pdata_base;
+extern int lge_lg4945_panel_mode_cmd_send(int switch_cmd, struct mdss_dsi_ctrl_pdata *ctrl);
+#endif
 
 #if defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
 #include <linux/mutex.h>
@@ -63,11 +87,15 @@ extern void lm3632_dsv_output_ctrl(int enable);
 //#define LM3632_KNOCK_ON_MODE 1
 #endif
 
-#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
+#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 extern void lm3632_set_knock_on_mode(void);
 extern void lm3632_unset_knock_on_mode(void);
 extern void lm3632_UVP_enable(void);
 extern void lm3632_dsv_output_ctrl(int enable);
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+extern void SetNextState_For_Touch(int lcdState);
+#endif
+
 //#define LM3632_KNOCK_ON_MODE 1
 #endif
 
@@ -91,6 +119,7 @@ extern int mfts_lpwg;
 #define NT35596_MAX_ERR_CNT 2
 
 #define MIN_REFRESH_RATE 48
+#define DEFAULT_MDP_TRANSFER_TIME 14000
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
 #if defined(CONFIG_BACKLIGHT_LM3697) || defined(CONFIG_BACKLIGHT_TI_LM3697)
@@ -146,6 +175,7 @@ extern void reset_pin_ctrl(int on_off, int delay);
 #endif
 #ifdef CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4
 extern void MIT300_Reset(int status, int delay);
+extern int mfts_lpwg;
 #endif
 
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_REFERENCE
@@ -154,7 +184,7 @@ extern void mip_reset_ctrl(int on_off, int delay);
 #endif
 #endif
 
-#ifdef CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL
+#if defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_PH1
 extern struct mutex		*mit_thread_lock;
 extern bool wakeup_by_swipe_mit300;
@@ -162,9 +192,15 @@ extern void reset_pin_ctrl(int on_off, int delay);
 #endif
 #ifdef CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4
 extern void MIT300_Reset(int status, int delay);
+extern int mfts_lpwg;
 #endif
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_REFERENCE
 extern void mip_reset_ctrl(int on_off, int delay);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_C100N
+extern struct mit_data* ts_data;
+extern int mfts_lpwg;
+extern void reset_pin_ctrl(struct mit_data* ts, int on_off, int delay);
 #endif
 #endif
 
@@ -180,6 +216,14 @@ int get_lcd_id(void)
 	return lcd_id;
 }
 //EXPORT_SYMBOL(get_lcd_id);
+#endif
+
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+int lcd_maker_id = 0;	//default DB7400
+int get_display_id(void)
+{
+	return lcd_maker_id;
+}
 #endif
 
 #if defined(CONFIG_LGE_MODULE_DETECT)
@@ -206,8 +250,11 @@ void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
 	}
 	ctrl->pwm_enabled = 0;
 }
-
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+void mdss_dsi_panel_bklt_pwm(struct mdss_dsi_ctrl_pdata *ctrl, int level)
+#else
 static void mdss_dsi_panel_bklt_pwm(struct mdss_dsi_ctrl_pdata *ctrl, int level)
+#endif
 {
 	int ret;
 	u32 duty;
@@ -304,7 +351,7 @@ u32 mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
 	return 0;
 }
 
-#if defined(CONFIG_LGE_DISPLAY_TUNING)
+#if defined(CONFIG_LGE_DISPLAY_TUNING) || IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
 void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_panel_cmds *pcmds)
 #else
@@ -328,22 +375,10 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	cmdreq.flags = CMD_REQ_COMMIT;
 
 	/*Panel ON/Off commands should be sent in DSI Low Power Mode*/
-#if defined (CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
-	if(lge_dual_panel == SECONDARY_MODULE){
-		if (pcmds->link_state == DSI_LP_MODE)
-			cmdreq.flags  |= CMD_REQ_LP_MODE;
-	} else {
-		if (pcmds->link_state == DSI_LP_MODE)
-			cmdreq.flags  |= CMD_REQ_LP_MODE;
-		else if (pcmds->link_state == DSI_HS_MODE)
-			cmdreq.flags |= CMD_REQ_HS_MODE;
-	}
-#else
 	if (pcmds->link_state == DSI_LP_MODE)
 		cmdreq.flags  |= CMD_REQ_LP_MODE;
 	else if (pcmds->link_state == DSI_HS_MODE)
 		cmdreq.flags |= CMD_REQ_HS_MODE;
-#endif
 
 #if defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL)
 	if (pcmds->link_state == DSI_HS_MODE)
@@ -436,7 +471,7 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	is_first_request = 1;
 	}
 
-#elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
+#elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 // Do nothing
 #elif defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL)
 	if (is_first_request == 0) {
@@ -509,7 +544,7 @@ bklt_en_gpio_err:
 		gpio_free(ctrl_pdata->rst_gpio);
 rst_gpio_err:
 	return rc;
-#elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
+#elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 mode_gpio_err:
 	if (gpio_is_valid(ctrl_pdata->bklt_en_gpio))
 		gpio_free(ctrl_pdata->bklt_en_gpio);
@@ -595,6 +630,11 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 #else
 int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	if (lge_mdss_dsi.lge_mdss_dsi_panel_reset)
+		return lge_mdss_dsi.lge_mdss_dsi_panel_reset(pdata, enable);
+	else {
+#endif
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	struct mdss_panel_info *pinfo = NULL;
 	int i, rc = 0;
@@ -675,9 +715,9 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			} else {
 #endif
 #if defined (LGD_INCELL_PHASE3_APPLY_POWER_SEQUENCE)
-		#if defined(CONFIG_LGE_TOUCH_LG4945)
-			pr_info("[Touch] Temporary do nothing\n");
-		#else	
+#if defined(CONFIG_LGE_TOUCH_LG4945)
+                pr_info("[Touch] Temporary do nothing\n");
+#else
 			if (ts_data != NULL) {
 				if (syna_ts_data != NULL) {
 					if (atomic_read(&syna_ts_data->state->upgrade_state) != UPGRADE_START) {
@@ -690,7 +730,7 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 				}
 				mutex_lock(&ts_data->pdata->thread_lock);
 			}
-		#endif	
+#endif
 #if defined (TD4191_ESD_INTERRUPT)
 			if (ctrl_pdata->is_detected_esd)
 			{
@@ -704,15 +744,16 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 				ctrl_pdata->is_detected_esd = 0;
 			}
 #endif
+
 #if defined (LM3632_KNOCK_ON_MODE)
 			lm3632_unset_knock_on_mode(); // initialize DSV voltage after exiting Knock on mode.
 #endif
 #if defined (LM3632_UVP_ENABLE)
 			lm3632_UVP_enable(); //LM3632 UVP(under volatage protection) enable.
 #endif
-	#if defined(CONFIG_LGE_TOUCH_LG4945)
-			pr_info("[Touch] Temporary do nothing\n");
-	#else		
+#if defined(CONFIG_LGE_TOUCH_LG4945)
+                pr_info("[Touch] Temporary do nothing\n");
+#else
 			if (wakeup_by_swipe == false) {
 				pr_info("[LCD] Start LCD power down when LCD on\n");
 				if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
@@ -775,7 +816,7 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			} else {
 				pr_info("[LCD] Skip power control in case of wakeup_by_swipe \n");
 			}
-		#endif	
+#endif
 #endif //LGD_INCELL_PHASE3_APPLY_POWER_SEQUENCE
 #if defined (CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
 			}
@@ -788,31 +829,67 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
 				gpio_set_value((ctrl_pdata->rst_gpio), 0);
 			}
+#ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_C100N
+
+			if (ts_data != NULL)
+				reset_pin_ctrl(ts_data, 0, 2);
+			if(lge_get_mfts_mode()/*&&!mfts_lpwg*/){
+				pr_info("[LCD] Start LCD power up when LCD on\n");
+				msm_dss_enable_vreg(ctrl_pdata->power_data[DSI_PANEL_PM].vreg_config,
+				ctrl_pdata->power_data[DSI_PANEL_PM].num_vreg, 1);
+
+				if (gpio_is_valid(ctrl_pdata->disp_lcd_ldo_1v8_gpio)) {
+					gpio_set_value((ctrl_pdata->disp_lcd_ldo_1v8_gpio), 1);
+				}
+				usleep(10 * 1000);
+				pr_info("[LCD] End LCD power up when LCD on\n");
+			}
+#endif
+#elif defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+#if defined (LM3632_KNOCK_ON_MODE)
+			lm3632_unset_knock_on_mode(); // initialize DSV voltage after exiting Knock on mode.
+#endif
+			pr_info("[LCD] Start LCD reset pin down when LCD on\n");
+			if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
+				gpio_set_value((ctrl_pdata->rst_gpio), 0);
+			}
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_PH1
 				reset_pin_ctrl(0, 2);
 #endif
-#ifdef CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4
-				MIT300_Reset(0, 2);
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+			if(!get_display_id())
+#endif
+			MIT300_Reset(0, 2);
 #endif
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_REFERENCE
 				mip_reset_ctrl(0, 2);
 #endif
+
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+			if(lge_get_mfts_mode() && !get_display_id()){
+#else
 			if(lge_get_mfts_mode()){
+#endif
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
+				if (!mfts_lpwg) {
+#endif
 				pr_info("[LCD] Start LCD power up when LCD on\n");
 				msm_dss_enable_vreg(ctrl_pdata->power_data[DSI_PANEL_PM].vreg_config,
 						ctrl_pdata->power_data[DSI_PANEL_PM].num_vreg, 1);
+					pr_info("[LCD] VPNL to high in mfts mode\n");
 
-					if (gpio_is_valid(ctrl_pdata->disp_lcd_ldo_3v0_gpio)) {
-					pr_info("[LCD] ldo_3v0 to high in mfts mode\n");
-					gpio_set_value((ctrl_pdata->disp_lcd_ldo_3v0_gpio), 1);
-				}
 					if (gpio_is_valid(ctrl_pdata->disp_lcd_ldo_1v8_gpio)) {
-					pr_info("[LCD] ldo_1v8 to high in mfts mode\n");
+					pr_info("[LCD] VDDIO to high in mfts mode\n");
 					gpio_set_value((ctrl_pdata->disp_lcd_ldo_1v8_gpio), 1);
 				}
 					usleep(10 * 1000);
 					pr_info("[LCD] End LCD power up when LCD on\n");
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
+				}
+#endif
 			}
+
 #elif defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
 			pr_info("[LCD] Start LCD power down when LCD on\n");
 			if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
@@ -824,7 +901,7 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			if (gpio_is_valid(ctrl_pdata->disp_dsv_p_gpio)) {
 				gpio_set_value((ctrl_pdata->disp_dsv_p_gpio), 0);
 			}
-			if (lge_get_mfts_mode() && !mfts_lpwg){
+			if (lge_get_mfts_mode() /*&& !mfts_lpwg*/){
 				usleep(5 * 1000);
 				msm_dss_enable_vreg(
 						ctrl_pdata->power_data[DSI_PANEL_PM].vreg_config,
@@ -883,6 +960,9 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 				reset_pin_ctrl(1, 50);
 #endif
 #ifdef CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+                if(!get_display_id())
+#endif
 				MIT300_Reset( 1, 50);
 #endif
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_REFERENCE
@@ -919,6 +999,17 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 #endif
 
 #if defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+
+		if(get_display_id()) { // TD4100
+
+//			gpio_set_value((ctrl_pdata->rst_gpio), 1); // LCD reset high
+//			usleep(200 * 1000);
+//			pr_info("[LCD] TD4100 LCD reset high\n");
+
+			//lm3632_dsv_output_ctrl(1); // DSV +/-5.5V On
+			//pr_info("[LCD] TD4100 DSV on\n");
+
+		} else { // DB7400
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_PH1
 				reset_pin_ctrl(1, 50);
 #endif
@@ -928,36 +1019,31 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 #ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_REFERENCE
 				mip_reset_ctrl(1, 50);
 #endif
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+			if(lge_get_mfts_mode() && !get_display_id()){
+#else
 			if(lge_get_mfts_mode()){
-				if (lge_get_board_revno() <= HW_REV_A){
-					if (gpio_is_valid(ctrl_pdata->disp_dsv_p_gpio)) {
-						pr_info("[LCD] dsv_p to high in mfts mode\n");
-						gpio_set_value((ctrl_pdata->disp_dsv_p_gpio), 1);
-					}
-					usleep(3*1000);
-					if (gpio_is_valid(ctrl_pdata->disp_dsv_n_gpio)) {
-						pr_info("[LCD] dsv_n to high in mfts mode\n");
-						gpio_set_value((ctrl_pdata->disp_dsv_n_gpio), 1);
-					}
-				}else{
-					if (gpio_is_valid(ctrl_pdata->disp_dsv_n_gpio)) {
-						pr_info("[LCD] dsv_n to high in mfts mode\n");
-						gpio_set_value((ctrl_pdata->disp_dsv_n_gpio), 1);
-					}
-					usleep(3*1000);
-					if (gpio_is_valid(ctrl_pdata->disp_dsv_p_gpio)) {
-						pr_info("[LCD] dsv_p to high in mfts mode\n");
-						gpio_set_value((ctrl_pdata->disp_dsv_p_gpio), 1);
-					}
+#endif
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
+				if (!mfts_lpwg) {
+#endif
+				 lm3632_dsv_output_ctrl(1);
+				 pr_info("[LCD] DSV to high in mfts mode\n");
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
 				}
+#endif
 			}
-
 			pr_info("[LCD] End LCD power up when LCD on\n");
+
+		}
 #endif
 
 #if defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
 #if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
 //		if (ts_data != NULL)
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+		if(!get_display_id())
+#endif
 			MIT300_Reset( 1, 50);
 		usleep(3 * 1000);
 #endif
@@ -973,6 +1059,24 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 #endif
 		usleep(5 * 1000);
 		pr_info("[LCD] End LCD power up when LCD on\n");
+#endif
+
+#if defined(CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL)
+#ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_C100N
+
+			if (ts_data != NULL)
+				reset_pin_ctrl(ts_data, 1, 50);
+			if(lge_get_mfts_mode() /*&&!mfts_lpwg*/){
+				if (gpio_is_valid(ctrl_pdata->disp_dsv_p_gpio)) {
+					gpio_set_value((ctrl_pdata->disp_dsv_p_gpio), 1);
+				}
+				usleep(3*1000);
+				if (gpio_is_valid(ctrl_pdata->disp_dsv_n_gpio)) {
+					gpio_set_value((ctrl_pdata->disp_dsv_n_gpio), 1);
+				}
+			}
+#endif
+			pr_info("[LCD] End LCD power up when LCD on\n");
 #endif
 
 			if (gpio_is_valid(ctrl_pdata->bklt_en_gpio))
@@ -1016,7 +1120,7 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		}
 #if defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL)
 		//do nothing
-#elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
+#elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL) || defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)  || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
 		//do nothing
 #elif defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_JDI_INCELL_VIDEO_FHD_PANEL)
 		/* do nothing */
@@ -1039,6 +1143,9 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			gpio_free(ctrl_pdata->mode_gpio);
 	}
 	return rc;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	}
+#endif
 }
 #endif
 
@@ -1567,6 +1674,9 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 		pr_err("%s: Invalid input data\n", __func__);
 		return;
 	}
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+	pdata_base = pdata;
+#endif
 
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -1580,6 +1690,11 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 	if ((bl_level < pdata->panel_info.bl_min) && (bl_level != 0))
 		bl_level = pdata->panel_info.bl_min;
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	if (lge_mdss_dsi.lge_mdss_dsi_panel_bl_ctrl) {
+		lge_mdss_dsi.lge_mdss_dsi_panel_bl_ctrl(pdata, bl_level);
+	} else {
+#endif
 	switch (ctrl_pdata->bklt_ctrl) {
 	case BL_WLED:
 #if defined(CONFIG_BACKLIGHT_LM3697) || defined(CONFIG_BACKLIGHT_TI_LM3697)
@@ -1629,6 +1744,10 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 		break;
 	}
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	}
+#endif
+
 #ifdef CONFIG_LGE_PM_PWR_KEY_FOR_CHG_LOGO
 	if(lge_get_boot_mode() == LGE_BOOT_MODE_CHARGERLOGO && bl_level == 0)
 	{
@@ -1658,12 +1777,19 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
-	pr_info("%s: + ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
+	pr_debug("%s: ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
 	if (pinfo->dcs_cmd_by_left) {
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			goto end;
 	}
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+	if (pinfo->lge_pan_info.lge_panel_send_on_cmd == false) {
+		pr_info("%s: skip panel  on cmd, ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
+		goto end;
+	}
+#endif
 
 #if defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL)
 	pr_info("[LCD] %s: INCELL_PANEL", __func__);
@@ -1707,12 +1833,38 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 #if defined (CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
 	}
 #endif
-#elif defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
-	msleep(30);//min 20ms (OTP auto read)
-	pr_info("[LCD] Start send on command\n");
-	if (ctrl->on_cmds.cmd_cnt)
-		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
-	pr_info("[LCD] End send on command\n");
+#elif defined (CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)  || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+
+#if defined(CONFIG_TOVIS_PH1SYNAP_INCELL_VIDEO_HD_PANEL)
+	if(get_display_id()) { // TD4100
+		pr_info("[LCD] TD4100 Start send on command\n");
+		if (ctrl->on_cmds.cmd_cnt)
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+		pr_info("[LCD] TD4100 End send on command\n");
+		#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+		if(lge_get_boot_mode() != LGE_BOOT_MODE_CHARGERLOGO) {
+			pr_info("[LCD][Touch] SetNextState_For_Touch call start \n");
+			SetNextState_For_Touch(1);
+			pr_info("[LCD][Touch] SetNextState_For_Touch call end \n");
+		}
+		#endif
+
+	} else { // DB7400
+		msleep(30);//min 20ms (OTP auto read)
+		pr_info("[LCD] Start send on command\n");
+		if (ctrl->on_cmds.cmd_cnt)
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+		pr_info("[LCD] End send on command\n");
+	}
+#else
+		msleep(30);//min 20ms (OTP auto read)
+		pr_info("[LCD] Start send on command\n");
+		if (ctrl->on_cmds.cmd_cnt)
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+		pr_info("[LCD] End send on command\n");
+
+#endif
+
 #elif defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL) && defined(CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
 	pr_info("[LCD] Start send on command\n");
 	if (lge_dual_panel ==  SECONDARY_MODULE)
@@ -1721,10 +1873,16 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
 	pr_info("[LCD] End send on command\n");
 #else
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+    mdelay(50);
+#else
+    mdelay(100);
+#endif
 	pr_info("[LCD] send on command\n");
 	if (ctrl->on_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
 #endif
+
 #if defined(CONFIG_LGD_LD083_VIDEO_WUXGA_PT_PANEL)
 	mdelay(150);
 	pr_info("%s:(Backlight) Enable \n", __func__);
@@ -1764,10 +1922,103 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	}
 #endif
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	if (lge_mdss_dsi.post_mdss_dsi_panel_on)
+		lge_mdss_dsi.post_mdss_dsi_panel_on(pdata);
+#endif
 
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_UNBLANK;
 	pr_info("%s: -\n", __func__);
+	return 0;
+}
+
+static int mdss_dsi_post_panel_on(struct mdss_panel_data *pdata)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_info *pinfo;
+	struct dsi_panel_cmds *on_cmds;
+
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+
+	pr_debug("%s: ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
+
+	pinfo = &pdata->panel_info;
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT)
+			goto end;
+	}
+
+	on_cmds = &ctrl->post_panel_on_cmds;
+
+	pr_debug("%s: ctrl=%pK cmd_cnt=%d\n", __func__, ctrl, on_cmds->cmd_cnt);
+
+#ifdef CONFIG_LGE_READER_MODE
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+	if(pinfo->db7400_cut != DB7400_CUT5) { //only CUT6,7
+#endif
+
+	switch(reader_mode_on_off)
+	{
+		case READER_MODE_STEP_1:
+			pr_info("%s: reader_mode STEP1\n", __func__);
+			if (ctrl->reader_mode_step1_cmds.cmd_cnt) {
+				pr_info("%s: reader_mode_step1_cmds cnt : %d \n", __func__, ctrl->reader_mode_step1_cmds.cmd_cnt);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step1_cmds);
+			}
+			break;
+		case READER_MODE_STEP_2:
+			pr_info("%s: reader_mode STEP2\n", __func__);
+			if (ctrl->reader_mode_step2_cmds.cmd_cnt) {
+				pr_info("%s: reader_mode_step2_cmds cnt : %d \n", __func__, ctrl->reader_mode_step2_cmds.cmd_cnt);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step2_cmds);
+			}
+			break;
+		case READER_MODE_STEP_3:
+			pr_info("%s: reader_mode STEP3\n", __func__);
+			if (ctrl->reader_mode_step3_cmds.cmd_cnt) {
+				pr_info("%s: reader_mode_step3_cmds cnt : %d \n", __func__, ctrl->reader_mode_step3_cmds.cmd_cnt);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step3_cmds);
+			}
+			break;
+		case READER_MODE_MONO:
+			pr_info("%s: reader_mode MONO \n", __func__);
+			if(!get_display_id()) { // DB7400
+				if (ctrl->reader_mode_mono_enable_cmds.cmd_cnt) {
+					pr_info("%s: reader_mode_mono_enable_cmds cnt : %d \n", __func__, ctrl->reader_mode_mono_enable_cmds.cmd_cnt);
+					mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_mono_enable_cmds);
+				}
+			} else { // TD4100
+				if (ctrl->reader_mode_step2_cmds.cmd_cnt) {
+					pr_info("%s: reader_mode_step2_cmds cnt : %d \n", __func__, ctrl->reader_mode_step2_cmds.cmd_cnt);
+					mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step2_cmds);
+				}
+			}
+			break;
+		case READER_MODE_OFF:
+		default:
+			break;
+	}
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+	}else{
+		pr_err("%s: Reader mode is not supported because LCD revision is CUT5\n", __func__);
+	}
+#endif
+#else
+	if (on_cmds->cmd_cnt) {
+		msleep(50);	/* wait for 3 vsync passed */
+		mdss_dsi_panel_cmds_send(ctrl, on_cmds);
+	}
+#endif
+
+end:
+	pr_debug("%s:-\n", __func__);
 	return 0;
 }
 
@@ -1789,12 +2040,20 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
-	pr_info("%s: + ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
+	pr_debug("%s: ctrl=%pK ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
 	if (pinfo->dcs_cmd_by_left) {
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			goto end;
 	}
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_AOD_SUPPORT)
+	if (pinfo->lge_pan_info.lge_panel_send_off_cmd == false) {
+		pr_info("%s: skip panel off cmd, ctrl=%p ndx=%d, switch_mode=%d\n", __func__, ctrl, ctrl->ndx, pinfo->lge_pan_info.switch_mode);
+		lge_lg4945_panel_mode_cmd_send(pinfo->lge_pan_info.switch_mode, NULL);
+		goto end;
+	}
+#endif
 
 	if (ctrl->off_cmds.cmd_cnt) {
 #if defined(CONFIG_BACKLIGHT_RT8542)
@@ -1873,30 +2132,91 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 #if defined (LM3632_KNOCK_ON_MODE)
 		lm3632_set_knock_on_mode(); //change DSV voltage when Knock on mode for power consumption.
 #endif
-		//mdelay(140);//min 120
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds_extra);
-
-		if(lge_get_mfts_mode()){
-			if (gpio_is_valid(ctrl->disp_dsv_n_gpio)){
-				pr_info("[LCD] dsv_n to low in mfts mode\n");
+		if((lge_get_mfts_mode() /*&& !mfts_lpwg*/)||(pdata->panel_info.shutdown_pending)){
+			mdelay(10);
+			if (gpio_is_valid(ctrl->rst_gpio)) {
+				gpio_set_value((ctrl->rst_gpio), 0);
+			}
+			if (ts_data != NULL)
+				reset_pin_ctrl(ts_data, 0, 2);
+			if (gpio_is_valid(ctrl->disp_dsv_n_gpio)) {
 				gpio_set_value((ctrl->disp_dsv_n_gpio), 0);
 			}
 			mdelay(1);
-			if (gpio_is_valid(ctrl->disp_dsv_p_gpio)){
-				pr_info("[LCD] dsv_p to low in mfts mode\n");
+			if (gpio_is_valid(ctrl->disp_dsv_p_gpio)) {
 				gpio_set_value((ctrl->disp_dsv_p_gpio), 0);
 			}
 			mdelay(10);
+			if (gpio_is_valid(ctrl->disp_lcd_ldo_1v8_gpio)) {
+				gpio_set_value((ctrl->disp_lcd_ldo_1v8_gpio), 0);
+			}
+			mdelay(1);
+			msm_dss_enable_vreg(ctrl->power_data[DSI_PANEL_PM].vreg_config,
+			ctrl->power_data[DSI_PANEL_PM].num_vreg, 0);
+		}
+#elif defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+		pr_info("[LCD] send off command\n");
+		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
+
+#if defined (LM3632_KNOCK_ON_MODE)
+		lm3632_set_knock_on_mode(); //change DSV voltage when Knock on mode for power consumption.
+#endif
+		if(get_display_id()) { // TD4100
+			// lm3632_dsv_output_ctrl(0); // DSV Off
+			// pr_info("[LCD] TD4100 DSV off\n");
+		} else { // DB7400
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds_extra);
+		}
+
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+		if(lge_get_mfts_mode() && !get_display_id()){
+#else
+		if(lge_get_mfts_mode()){
+#endif
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
+			if (!mfts_lpwg) {
+#endif
+
+			lm3632_dsv_output_ctrl(0);
+			pr_info("[LCD] DSV to low in mfts mode\n");
+			mdelay(2);
 			if (gpio_is_valid(ctrl->rst_gpio)) {
 				pr_info("[LCD] reset to low in mfts mode\n");
 				gpio_set_value((ctrl->rst_gpio), 0);
 			}
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+			if(!get_display_id()) {
+#endif
+			pr_info("[TOUCH] T_Reset to low in mfts mode\n");
+			MIT300_Reset(0, 2);
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+			}
+#endif
+#endif
+
 			mdelay(1);
+			if (gpio_is_valid(ctrl->disp_lcd_ldo_1v8_gpio)) {
+				pr_info("[LCD] VDDIO to low in mfts mode\n");
+				gpio_set_value((ctrl->disp_lcd_ldo_1v8_gpio), 0);
+			}
+			mdelay(5);
 			msm_dss_enable_vreg(
 					ctrl->power_data[DSI_PANEL_PM].vreg_config,
 					ctrl->power_data[DSI_PANEL_PM].num_vreg, 0);
+			pr_info("[LCD] VPNL to low in mfts mode\n");
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_DRIVER4)
+			}
+#endif
+		 }
+#if defined(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1)
+		if(get_display_id() && (lge_get_boot_mode() != LGE_BOOT_MODE_CHARGERLOGO)) {
+		    pr_info("[LCD][Touch] SetNextState_For_Touch call start \n");
+		    SetNextState_For_Touch(0);
+		    pr_info("[LCD][Touch] SetNextState_For_Touch call end \n");
 		}
-
+#endif
 #elif defined(CONFIG_JDI_INCELL_VIDEO_HD_PANEL) && defined(CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
 		pr_info("[LCD] send off command\n");
 		if (lge_dual_panel == PRIMARY_MODULE) {
@@ -1955,11 +2275,320 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
     pr_err("%s : dsv_control is available after this time. is_available_dsv_control = [%d]\n", __func__, is_available_dsv_control);
 #endif
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	if (lge_mdss_dsi.post_mdss_dsi_panel_off)
+		lge_mdss_dsi.post_mdss_dsi_panel_off(pdata);
+#endif
+
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_BLANK;
 	pr_info("%s: -\n", __func__);
 	return 0;
 }
+
+#ifdef CONFIG_LGE_READER_MODE
+
+int reader_mode_off(void)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_data *pdata;
+
+	pr_err("%s ++ \n", __func__);
+
+	if (pdata_base == NULL || mfd_base == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	if (mfd_base->panel_power_state== MDSS_PANEL_POWER_OFF) {
+		pr_err("%s: Panel is off\n", __func__);
+		return -EPERM;
+	}
+
+	ctrl = container_of(pdata_base, struct mdss_dsi_ctrl_pdata, panel_data);
+
+	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
+	pdata = &(ctrl->panel_data);
+
+	pr_info("%s [reader mode] old : %d\n", __func__, reader_mode_old);
+
+	switch(reader_mode_old)
+	{
+		case READER_MODE_OFF:
+			pr_info("%s: already reader mode off : %d\n", __func__, reader_mode_old);
+			break;
+		case READER_MODE_STEP_1:
+		case READER_MODE_STEP_2:
+		case READER_MODE_STEP_3:
+			if (ctrl->reader_mode_off_cmds.cmd_cnt) {
+				pr_info("[LCD] sending reader mode OFF commands cnt : %d\n", ctrl->reader_mode_off_cmds.cmd_cnt);
+				mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_off_cmds);
+				mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+			}
+			break;
+
+		case READER_MODE_MONO:
+			if (ctrl->reader_mode_off_cmds.cmd_cnt) {
+				pr_info("[LCD] sending reader mode OFF commands cnt : %d\n", ctrl->reader_mode_off_cmds.cmd_cnt);
+				mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_off_cmds);
+				//mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+			}
+
+			if(!get_display_id()) { // DB7400
+				if (ctrl->reader_mode_mono_disable_cmds.cmd_cnt) {
+					pr_info("[LCD] sending MONO OFF commands cnt : %d\n", ctrl->reader_mode_mono_disable_cmds.cmd_cnt);
+					//mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+					mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_mono_disable_cmds);
+					mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+				}
+			}
+			break;
+		default:
+			pr_err("%s: Invalid old status : %d\n", __func__, reader_mode_old);
+			break;
+	}
+
+	reader_mode_old = READER_MODE_OFF;
+	pr_info("%s : reader_mode_old :%d \n", __func__, reader_mode_old);
+	pr_info("%s -- \n", __func__);
+	return 0;
+}
+EXPORT_SYMBOL(reader_mode_off);
+
+int reader_mode_on(int step)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_data *pdata;
+
+	pr_info("%s ++ \n", __func__);
+
+	if (pdata_base == NULL || mfd_base == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	if (mfd_base->panel_power_state == MDSS_PANEL_POWER_OFF) {
+		pr_err("%s: Panel is off\n", __func__);
+		return -EPERM;
+	}
+
+	ctrl = container_of(pdata_base, struct mdss_dsi_ctrl_pdata, panel_data);
+
+	pdata = &(ctrl->panel_data);
+	pr_info("%s [reader mode] old : %d\n", __func__, reader_mode_old);
+
+	switch(reader_mode_old)
+	{
+		case READER_MODE_OFF:
+		case READER_MODE_STEP_1:
+		case READER_MODE_STEP_2:
+		case READER_MODE_STEP_3:
+			if(reader_mode_old == step)
+			{
+				pr_info("[LCD] Same as older mode : %d \n", step);
+				break;
+			}
+			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+			switch(step)
+			{
+				case READER_MODE_STEP_1:
+					if (ctrl->reader_mode_step1_cmds.cmd_cnt) {
+						pr_info("[LCD] sending reader mode STEP1 commands  cnt : %d \n", ctrl->reader_mode_step1_cmds.cmd_cnt);
+						mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step1_cmds);
+					}
+					break;
+				case READER_MODE_STEP_2:
+					if (ctrl->reader_mode_step2_cmds.cmd_cnt) {
+						pr_info("[LCD] sending reader mode STEP2 commands  cnt : %d \n", ctrl->reader_mode_step2_cmds.cmd_cnt);
+						mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step2_cmds);
+					}
+					break;
+				case READER_MODE_STEP_3:
+					if (ctrl->reader_mode_step3_cmds.cmd_cnt) {
+						pr_info("[LCD] sending reader mode STEP3 commands  cnt : %d \n", ctrl->reader_mode_step3_cmds.cmd_cnt);
+						mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step3_cmds);
+					}
+					break;
+				case READER_MODE_MONO:
+					if(get_display_id()) { // TD4100
+						if (ctrl->reader_mode_step2_cmds.cmd_cnt) {
+							pr_info("[LCD] sending reader mode STEP2 commands  cnt : %d \n", ctrl->reader_mode_step2_cmds.cmd_cnt);
+							mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step2_cmds);
+						}
+					}
+					break;
+				default:
+					pr_err("[LCD] Input Invalid parameter : %d \n", step);
+					break;
+			}
+			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+			break;
+		case READER_MODE_MONO:
+			if(reader_mode_old == step)
+			{
+				pr_info("[LCD] Same as older mode : %d \n", step);
+				break;
+			}
+			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+
+			if(!get_display_id()) { // DB7400
+				if (ctrl->reader_mode_mono_disable_cmds.cmd_cnt) {
+					pr_info("[LCD] sending reader MONO mode OFF commands FIRST cnt : %d \n", ctrl->reader_mode_mono_disable_cmds.cmd_cnt);
+					mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_mono_disable_cmds);
+				}
+			}
+			switch(step)
+			{
+				case READER_MODE_STEP_1:
+					if (ctrl->reader_mode_step1_cmds.cmd_cnt) {
+						pr_info("[LCD] sending reader mode STEP1 commands  cnt : %d \n", ctrl->reader_mode_step1_cmds.cmd_cnt);
+						mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step1_cmds);
+					}
+					break;
+				case READER_MODE_STEP_2:
+					if (ctrl->reader_mode_step2_cmds.cmd_cnt) {
+						pr_info("[LCD] sending reader mode STEP2 commands  cnt : %d \n", ctrl->reader_mode_step2_cmds.cmd_cnt);
+						mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step2_cmds);
+					}
+					break;
+				case READER_MODE_STEP_3:
+					if (ctrl->reader_mode_step3_cmds.cmd_cnt) {
+						pr_info("[LCD] sending reader mode STEP3 commands  cnt : %d \n", ctrl->reader_mode_step3_cmds.cmd_cnt);
+						mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_step3_cmds);
+					}
+					break;
+				default:
+					pr_err("[LCD] Input Invalid parameter : %d \n", step);
+					break;
+			}
+			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+			break;
+		default:
+			pr_info("%s: Invalid old status : %d\n", __func__, reader_mode_old);
+			break;
+	}
+
+	reader_mode_old = step;
+	pr_info("%s -- \n", __func__);
+	return 0;
+}
+EXPORT_SYMBOL(reader_mode_on);
+
+int reader_mode_mono(void)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_data *pdata;
+
+	pr_info("%s ++ \n", __func__);
+	if (pdata_base == NULL || mfd_base == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	if (mfd_base->panel_power_state == MDSS_PANEL_POWER_OFF) {
+		pr_err("%s: Panel is off\n", __func__);
+		return -EPERM;
+	}
+
+	ctrl = container_of(pdata_base, struct mdss_dsi_ctrl_pdata, panel_data);
+
+	pr_info("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
+	pdata = &(ctrl->panel_data);
+
+	pr_info("%s [reader mode] old : %d\n", __func__, reader_mode_old);
+	switch(reader_mode_old)
+	{
+		case READER_MODE_STEP_2:
+			if (ctrl->reader_mode_mono_enable_cmds.cmd_cnt) {
+				pr_info("[LCD] sending reader mode mono commands  cnt : %d \n", ctrl->reader_mode_mono_enable_cmds.cmd_cnt);
+				mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_mono_enable_cmds);
+				mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+			}
+			break;
+		case READER_MODE_STEP_1:
+		case READER_MODE_OFF:
+		case READER_MODE_STEP_3:
+			// change STEP2 first
+			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+			// change monochrome
+			if (ctrl->reader_mode_mono_enable_cmds.cmd_cnt) {
+				pr_info("[LCD] sending reader mode MONO ON commands  cnt : %d \n", ctrl->reader_mode_mono_enable_cmds.cmd_cnt);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->reader_mode_mono_enable_cmds);
+			}
+			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+			break;
+		default:
+			pr_err("%s: Invalid old status : %d\n", __func__, reader_mode_old);
+			break;
+	}
+	reader_mode_old = READER_MODE_MONO;
+	pr_info("%s -- \n", __func__);
+	return 0;
+}
+EXPORT_SYMBOL(reader_mode_mono);
+
+static ssize_t reader_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", reader_mode_on_off);
+}
+
+static ssize_t reader_mode_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_info *pinfo = NULL;
+
+	ctrl = container_of(pdata_base, struct mdss_dsi_ctrl_pdata, panel_data);
+	pinfo = &(ctrl->panel_data.panel_info);
+#endif
+	if (!count)
+		return -EINVAL;
+
+	reader_mode_on_off = simple_strtoul(buf, NULL, 10);
+
+	pr_info("[LCD] %s, %d", __func__, reader_mode_on_off);
+
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+	if(pinfo->db7400_cut != DB7400_CUT5) { //only CUT6,7
+#endif
+	switch (reader_mode_on_off)
+	{
+		case READER_MODE_OFF:
+			reader_mode_off();
+			break;
+		case READER_MODE_STEP_1:
+		case READER_MODE_STEP_2:
+		case READER_MODE_STEP_3:
+			reader_mode_on(reader_mode_on_off);
+			break;
+		case READER_MODE_MONO:
+			if(!get_display_id()) { // DB7400
+				reader_mode_mono();
+			} else { // TD4100
+				reader_mode_on(reader_mode_on_off);
+			}
+			break;
+		default:
+			pr_info("[LCD] %s, Invalid input %d", __func__, reader_mode_on_off);
+			break;
+		}
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+	}else{
+		pr_err("%s: Reader mode is not supported because LCD revision is CUT5\n", __func__);
+	}
+#endif
+	return count;
+}
+
+DEVICE_ATTR(reader_mode, 0644, reader_mode_show, reader_mode_store);
+#endif
+
 
 static int mdss_dsi_panel_low_power_config(struct mdss_panel_data *pdata,
 	int enable)
@@ -2032,9 +2661,13 @@ static void mdss_dsi_parse_trigger(struct device_node *np, char *trigger,
 	}
 }
 
-
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+int mdss_dsi_parse_dcs_cmds(struct device_node *np,
+		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
+#else
 static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
+#endif
 {
 	const char *data;
 	int blen = 0, len;
@@ -2600,6 +3233,133 @@ static void mdss_dsi_parse_dfps_config(struct device_node *pan_node,
 	return;
 }
 
+void mdss_dsi_unregister_bl_settings(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	if (ctrl_pdata->bklt_ctrl == BL_WLED)
+		led_trigger_unregister_simple(bl_led_trigger);
+}
+
+
+/**
+ * get_mdss_dsi_even_lane_clam_mask() - Computest DSI lane 0 & 2 clamps mask
+ * @dlane_swap: dsi_lane_map_type
+ * @lane_id: DSI lane (DSI_LANE_0)/(DSI_LANE_2)
+ *
+ * Return DSI lane 0 & 2 clamp mask based on lane swap configuration.
+ * Clamp Bit for Physical lanes
+ *      Lane Num        Bit     Mask
+ *      Lane0           Bit 7   0x80
+ *      Lane1           Bit 5   0x20
+ *      Lane2           Bit 3   0x08
+ *      Lane3           Bit 2   0x02
+ */
+u32 get_mdss_dsi_even_lane_clam_mask(char dlane_swap,
+				     enum dsi_lane_ids lane_id)
+{
+	u32 lane0_mask = 0;
+	u32 lane2_mask = 0;
+
+	switch (dlane_swap) {
+	case DSI_LANE_MAP_0123:
+	case DSI_LANE_MAP_0321:
+		lane0_mask = 0x80;
+		lane2_mask = 0x08;
+		break;
+	case DSI_LANE_MAP_3012:
+	case DSI_LANE_MAP_1032:
+		lane0_mask = 0x20;
+		lane2_mask = 0x02;
+		break;
+	case DSI_LANE_MAP_2301:
+	case DSI_LANE_MAP_2103:
+		lane0_mask = 0x08;
+		lane2_mask = 0x80;
+		break;
+	case DSI_LANE_MAP_1230:
+	case DSI_LANE_MAP_3210:
+		lane0_mask = 0x02;
+		lane2_mask = 0x20;
+		break;
+	default:
+		lane0_mask = 0x00;
+		lane2_mask = 0x00;
+		break;
+	}
+	if (lane_id == DSI_LANE_0)
+		return lane0_mask;
+	else if (lane_id == DSI_LANE_2)
+		return lane2_mask;
+	else
+		return 0;
+}
+
+/**
+ * get_mdss_dsi_odd_lane_clam_mask() - Computest DSI lane 1 & 3 clamps mask
+ * @dlane_swap: dsi_lane_map_type
+ * @lane_id: DSI lane (DSI_LANE_1)/(DSI_LANE_3)
+ *
+ * Return DSI lane 1 & 3 clamp mask based on lane swap configuration.
+ */
+u32 get_mdss_dsi_odd_lane_clam_mask(char dlane_swap,
+					enum dsi_lane_ids lane_id)
+{
+	u32 lane1_mask = 0;
+	u32 lane3_mask = 0;
+
+	switch (dlane_swap) {
+	case DSI_LANE_MAP_0123:
+	case DSI_LANE_MAP_2103:
+		lane1_mask = 0x20;
+		lane3_mask = 0x02;
+		break;
+	case DSI_LANE_MAP_3012:
+	case DSI_LANE_MAP_3210:
+		lane1_mask = 0x08;
+		lane3_mask = 0x80;
+		break;
+	case DSI_LANE_MAP_2301:
+	case DSI_LANE_MAP_0321:
+		lane1_mask = 0x02;
+		lane3_mask = 0x20;
+		break;
+	case DSI_LANE_MAP_1230:
+	case DSI_LANE_MAP_1032:
+		lane1_mask = 0x80;
+		lane3_mask = 0x08;
+		break;
+	default:
+		lane1_mask = 0x00;
+		lane3_mask = 0x00;
+		break;
+	}
+	if (lane_id == DSI_LANE_1)
+		return lane1_mask;
+	else if (lane_id == DSI_LANE_3)
+		return lane3_mask;
+	else
+		return 0;
+}
+static void mdss_dsi_set_lane_clamp_mask(struct mipi_panel_info *mipi)
+{
+	u32 mask = 0;
+
+	if (mipi->data_lane0)
+		mask = get_mdss_dsi_even_lane_clam_mask(mipi->dlane_swap,
+					DSI_LANE_0);
+	if (mipi->data_lane1)
+		mask |= get_mdss_dsi_odd_lane_clam_mask(mipi->dlane_swap,
+					DSI_LANE_1);
+	if (mipi->data_lane2)
+		mask |= get_mdss_dsi_even_lane_clam_mask(mipi->dlane_swap,
+					DSI_LANE_2);
+	if (mipi->data_lane3)
+		mask |= get_mdss_dsi_odd_lane_clam_mask(mipi->dlane_swap,
+					DSI_LANE_3);
+
+	mipi->phy_lane_clamp_mask = mask;
+}
+
+
 static int mdss_panel_parse_dt(struct device_node *np,
 			struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
@@ -2631,6 +3391,19 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	pr_err("%s:%d, rc : %d\n", __func__, __LINE__, rc);
 	lcd_id = tmp;
 	pr_err("%s:%d, lcd_id : %d\n", __func__, __LINE__, lcd_id);
+#endif
+
+#if defined(CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+	{
+		u32 temp;
+		rc = of_property_read_u32(np, "lge,display_id", &temp);
+		if (rc) {
+			pr_err("%s: unable to get display_id %d", __func__, rc);
+			return rc;
+		}
+		lcd_maker_id = temp;
+		pr_err("%s:%d, display ID = [ %d ] \n", __func__, __LINE__, lcd_maker_id);
+	}
 #endif
 
 #if defined(CONFIG_LGE_MODULE_DETECT)
@@ -2742,7 +3515,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		else if (!strcmp(data, "vflip"))
 			pinfo->panel_orientation = MDP_FLIP_UD;
 	}
-
 	ctrl_pdata->bklt_ctrl = UNKNOWN_CTRL;
 	data = of_get_property(np, "qcom,mdss-dsi-bl-pmic-control-type", NULL);
 	if (data) {
@@ -2801,7 +3573,12 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-bl-max-level", &tmp);
 	pinfo->bl_max = (!rc ? tmp : 255);
 	ctrl_pdata->bklt_max = pinfo->bl_max;
-
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	if (lge_mdss_dsi.lge_mdss_panel_parse_dt)
+		rc = lge_mdss_dsi.lge_mdss_panel_parse_dt(np, ctrl_pdata);
+	if(rc)
+		goto error;
+#endif
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-interleave-mode", &tmp);
 	pinfo->mipi.interleave_mode = (!rc ? tmp : 0);
 
@@ -2824,6 +3601,12 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		"qcom,mdss-dsi-last-line-interleave");
 	pinfo->mipi.bllp_power_stop = of_property_read_bool(np,
 		"qcom,mdss-dsi-bllp-power-mode");
+#if defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+	if (pinfo->mipi.bllp_power_stop)
+		pr_err("%s: [LCD] BLLP LP MODE\n", __func__);
+	else
+		pr_err("%s: [LCD] BLLP HS MODE\n", __func__);
+#endif
 	pinfo->mipi.eof_bllp_power_stop = of_property_read_bool(
 		np, "qcom,mdss-dsi-bllp-eof-power-mode");
 	pinfo->mipi.traffic_mode = DSI_NON_BURST_SYNCH_PULSE;
@@ -2902,6 +3685,8 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	pinfo->mipi.frame_rate = (!rc ? tmp : 60);
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-panel-clockrate", &tmp);
 	pinfo->clk_rate = (!rc ? tmp : 0);
+	rc = of_property_read_u32(np, "qcom,mdss-mdp-transfer-time-us", &tmp);
+	pinfo->mdp_transfer_time_us = (!rc ? tmp : DEFAULT_MDP_TRANSFER_TIME);
 	data = of_get_property(np, "qcom,mdss-dsi-panel-timings", &len);
 	if ((!data) || (len != 12)) {
 		pr_err("%s:%d, Unable to read Phy timing settings",
@@ -2937,27 +3722,105 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		"qcom,mdss-dsi-reset-sequence");
 
 #if defined(CONFIG_MACH_MSM8916_C100N_KR)
-	if (lge_get_board_revno() >= HW_REV_C){
+	if (lge_get_board_revno() >= HW_REV_1_1){
+		pr_info("%s: Upper Rev.1.1, we apply new init code\n",
+			__func__);
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+			"qcom,mdss-dsi-on-command-rev-1-1", "qcom,mdss-dsi-on-command-state");
+	}
+	else if (lge_get_board_revno() >= HW_REV_C){
 		pr_info("%s: Upper Rev.c, we don't control LCD VCOM set\n",
 			__func__);
 		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
-			"qcom,mdss-dsi-on-command-without-vcom-control", "qcom,mdss-dsi-on-command-state");
+			"qcom,mdss-dsi-on-command-rev-c", "qcom,mdss-dsi-on-command-state");
 	}
 	else {
 		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
 			"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
 	}
+#elif defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	if (pinfo->lg4895_revision == LG4895_REV0) {
+		pr_err("%s: [LCD] lg4895 revision 0 init code\n", __func__);
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+				"qcom,mdss-dsi-on-command-rev0", "qcom,mdss-dsi-on-command-state");
+	} else if(pinfo->lg4895_revision == LG4895_REV1) {
+		pr_err("%s: [LCD] lg4895 revision 1 init code\n", __func__);
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+				"qcom,mdss-dsi-on-command-rev1", "qcom,mdss-dsi-on-command-state");
+	} else if(pinfo->lg4895_revision == LG4895_REV2) {
+		pr_err("%s: [LCD] lg4895 revision 2 init code\n", __func__);
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+				"qcom,mdss-dsi-on-command-rev2", "qcom,mdss-dsi-on-command-state");
+	} else {
+		pr_err("%s: [LCD] lg4895 revision 3 init code\n", __func__);
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+				"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
+	}
+#else
+	if(lcd_maker_id == 0){								//DB7400
+		if(pinfo->db7400_cut == DB7400_CUT5) {
+			pr_err("%s: [LCD] DB7400 CUT 5 init code\n", __func__);
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+					"qcom,mdss-dsi-on-command-cut5", "qcom,mdss-dsi-on-command-state");
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
+					"qcom,mdss-dsi-off-command1-cut5", "qcom,mdss-dsi-off-command-state");
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds_extra,
+					"qcom,mdss-dsi-off-command2-cut5", "qcom,mdss-dsi-off-command2-state");
+		}else if(pinfo->db7400_cut == DB7400_CUT6) {	//default CUT6
+			pr_err("%s: [LCD] DB7400 CUT 6 init code\n", __func__);
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+					"qcom,mdss-dsi-on-command-cut6", "qcom,mdss-dsi-on-command-state");
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
+					"qcom,mdss-dsi-off-command1-cut6", "qcom,mdss-dsi-off-command-state");
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds_extra,
+					"qcom,mdss-dsi-off-command2-cut6", "qcom,mdss-dsi-off-command2-state");
+		}else { 				                        //default CUT7
+			pr_err("%s: [LCD] DB7400 CUT 7 init code\n", __func__);
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+					"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
+					"qcom,mdss-dsi-off-command1", "qcom,mdss-dsi-off-command-state");
+			mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds_extra,
+					"qcom,mdss-dsi-off-command2", "qcom,mdss-dsi-off-command2-state");
+		}
+	}else{												//LG4894 && TD4100
+		pr_err("%s: [LCD] TD4100 init on/off command \n", __func__);
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
+				"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
+				"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
+	}
+#endif
 #else
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
 		"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
 #endif
 
-#if defined(CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
+#ifdef CONFIG_LGE_READER_MODE
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->reader_mode_step1_cmds,
+			"qcom,panel-reader-mode-step1-command", "qcom,mdss-dsi-reader_mode-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->reader_mode_step2_cmds,
+			"qcom,panel-reader-mode-step2-command", "qcom,mdss-dsi-reader_mode-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->reader_mode_step3_cmds,
+			"qcom,panel-reader-mode-step3-command", "qcom,mdss-dsi-reader_mode-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->reader_mode_off_cmds,
+			"qcom,panel-reader-mode-off-command", "qcom,mdss-dsi-reader_mode-command-state");
+	if(!get_display_id()) { // DB7400
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->reader_mode_mono_enable_cmds,
+			"qcom,panel-reader-mode-mono-enable-command", "qcom,mdss-dsi-reader_mode-command-state");
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->reader_mode_mono_disable_cmds,
+			"qcom,panel-reader-mode-mono-disable-command", "qcom,mdss-dsi-reader_mode-command-state");
+	}
+#endif
+
+#if defined(CONFIG_LGD_DONGBU_INCELL_VIDEO_HD_PANEL) || defined(CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL) || defined (CONFIG_LGD_PH1DONGBU_INCELL_VIDEO_HD_PANEL)
+#if !defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
 		"qcom,mdss-dsi-off-command1", "qcom,mdss-dsi-off-command-state");
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds_extra,
 		"qcom,mdss-dsi-off-command2", "qcom,mdss-dsi-off-command-state");
-
+#endif
 #elif defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
 #if defined(CONFIG_LGD_INCELL_DB7400_VIDEO_HD_DUAL_PANEL)
 	if (lge_dual_panel == SECONDARY_MODULE) {
@@ -2990,13 +3853,12 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
 #endif
 
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->post_panel_on_cmds,
+		"qcom,mdss-dsi-post-panel-on-command", NULL);
+
 #if defined(CONFIG_LGD_INCELL_PHASE3_VIDEO_HD_PT_PANEL)
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->lut_update_cmds,
 		"qcom,mdss-dsi-lut-update-command", "qcom,mdss-dsi-lut-update-command-state");
-#endif
-#if defined (CONFIG_LGD_M2DONGBU_INCELL_VIDEO_HD_PANEL)
-	pinfo->mipi.force_clk_lane_hs =
-	                           of_property_read_bool(np, "qcom,mdss-force-hs-clk-always");
 #endif
 
 #if defined(CONFIG_LGD_INCELL_VIDEO_WVGA_PT_PANEL) || defined(CONFIG_LGD_INCELL_VIDEO_FWVGA_PT_PANEL)
@@ -3057,6 +3919,30 @@ error:
 	return -EINVAL;
 }
 
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+static ssize_t lg4895_revision_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", lge_get_lg4895_revision());
+}
+
+static struct device_attribute lg4895_revision_attrs[] = {
+	__ATTR(lg4895_revision, 0444, lg4895_revision_show, NULL),
+};
+#else
+static ssize_t db7400_cut_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", lge_get_db7400_cut());
+}
+
+static struct device_attribute db7400_cut_attrs[] = {
+	__ATTR(db7400_cut, 0444, db7400_cut_show, NULL),
+};
+#endif
+#endif
+
 int mdss_dsi_panel_init(struct device_node *node,
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 	bool cmd_cfg_cont_splash)
@@ -3064,6 +3950,33 @@ int mdss_dsi_panel_init(struct device_node *node,
 	int rc = 0;
 	static const char *panel_name;
 	struct mdss_panel_info *pinfo;
+
+#ifdef CONFIG_LGE_READER_MODE
+	struct device_node *dsi_ctrl_np = NULL;
+	struct platform_device *ctrl_pdev = NULL;
+#endif
+
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+	static struct class *lg4895_revision = NULL;
+	static struct device *lg4895_sysfs_dev = NULL;
+
+	if(!lg4895_revision) {
+		lg4895_revision = class_create(THIS_MODULE, "lg4895_revision");
+		if (IS_ERR(lg4895_revision))
+			pr_err("%s: Failed to create lg4895_revision class\n", __func__);
+	}
+#else
+	static struct class *db7400_revision = NULL;
+	static struct device *db7400_sysfs_dev = NULL;
+
+	if(!db7400_revision) {
+		db7400_revision = class_create(THIS_MODULE, "db7400_revision");
+		if (IS_ERR(db7400_revision))
+			pr_err("%s: Failed to create db7400_revision class\n", __func__);
+	}
+#endif
+#endif
 
 	if (!node || !ctrl_pdata) {
 		pr_err("%s: Invalid arguments\n", __func__);
@@ -3081,6 +3994,37 @@ int mdss_dsi_panel_init(struct device_node *node,
 	} else {
 		pr_info("%s: Panel Name = %s\n", __func__, panel_name);
 		strlcpy(&pinfo->panel_name[0], panel_name, MDSS_MAX_PANEL_LEN);
+#if defined(CONFIG_LGE_DIC_TRIPLE_DETECT)
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+		pinfo->lg4895_revision= lge_get_lg4895_revision();
+
+		if (!lg4895_sysfs_dev) {
+			lg4895_sysfs_dev = device_create(lg4895_revision, NULL, 0, NULL, "lg4895_func");
+			if (IS_ERR(lg4895_sysfs_dev)) {
+				pr_err("%s: Failed to create dev(lg4895_sysfs_dev)!", __func__);
+			}else{
+				if (device_create_file(lg4895_sysfs_dev, &lg4895_revision_attrs[0]) < 0)
+					pr_err("%s: Fail!", __func__);
+			}
+		}
+#else
+		pinfo->db7400_cut= lge_get_db7400_cut();
+
+		if (!db7400_sysfs_dev) {
+			db7400_sysfs_dev = device_create(db7400_revision, NULL, 0, NULL, "db7400_func");
+			if (IS_ERR(db7400_sysfs_dev)) {
+				pr_err("%s: Failed to create dev(db7400_sysfs_dev)!", __func__);
+			}else{
+				if (device_create_file(db7400_sysfs_dev, &db7400_cut_attrs[0]) < 0)
+					pr_err("%s: Fail!", __func__);
+			}
+		}
+#endif
+#endif
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_CODE_REFACTORING)
+		if (lge_mdss_dsi.lge_mdss_dsi_panel_init)
+			rc = lge_mdss_dsi.lge_mdss_dsi_panel_init(node,ctrl_pdata,cmd_cfg_cont_splash);
+#endif
 	}
 	rc = mdss_panel_parse_dt(node, ctrl_pdata);
 	if (rc) {
@@ -3088,6 +4032,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 		return rc;
 	}
 
+	mdss_dsi_set_lane_clamp_mask(&pinfo->mipi);
 	if (!cmd_cfg_cont_splash)
 		pinfo->cont_splash_enabled = false;
 	pr_info("%s: Continuous splash %s\n", __func__,
@@ -3098,6 +4043,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 	pinfo->esd_rdy = false;
 
 	ctrl_pdata->on = mdss_dsi_panel_on;
+	ctrl_pdata->post_panel_on = mdss_dsi_post_panel_on;
 	ctrl_pdata->off = mdss_dsi_panel_off;
 	ctrl_pdata->low_power_config = mdss_dsi_panel_low_power_config;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;
@@ -3113,5 +4059,24 @@ int mdss_dsi_panel_init(struct device_node *node,
 #endif
 #endif
 
+#ifdef CONFIG_LGE_READER_MODE
+	/* Panel device is not created since KK release										*/
+	/* create the node file for controling the reader mode under the dsi controller device 				*/
+	/* file path: /sys/devices/1a98000.qcom,mdss_dsi/reader_mode 						*/
+
+	dsi_ctrl_np = of_parse_phandle(node,
+				"qcom,mdss-dsi-panel-controller", 0);
+
+	pr_err("%s: CONFIG_LGE_READER_MODE \n", __func__);
+	if (!dsi_ctrl_np) {
+		pr_err("%s: Dsi controller node not initialized\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
+	ctrl_pdev = of_find_device_by_node(dsi_ctrl_np);
+
+	pr_err("%s: create file \n", __func__);
+	rc = device_create_file(&ctrl_pdev->dev, &dev_attr_reader_mode);
+#endif
 	return 0;
 }

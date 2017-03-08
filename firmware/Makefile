@@ -46,6 +46,10 @@ synaptics_firmware := $(subst $(srctree)/firmware/,,$(synaptics_img_file))
 fw-shipped-$(CONFIG_TOUCHSCREEN_LGE_SYNAPTICS) += $(synaptics_firmware)
 else
 
+mit200_fw_file := $(wildcard $(srctree)/firmware/melfas/mit200/$(TARGET_PRODUCT)/*)
+mit200_firmware := $(subst $(srctree)/firmware/,,$(mit200_fw_file))
+fw-shipped-$(CONFIG_TOUCHSCREEN_LGE_MELFAS) += $(mit200_firmware)
+
 synaptics_img_file := $(wildcard $(srctree)/firmware/synaptics/c70/*)
 synaptics_firmware := $(subst $(srctree)/firmware/,,$(synaptics_img_file))
 
@@ -109,12 +113,14 @@ synaptics_firmware := $(subst $(srctree)/firmware/,,$(synaptics_img_file))
 fw-shipped-$(CONFIG_TOUCHSCREEN_MSM8916_YG) += $(synaptics_firmware)
 endif
 
-ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300
-ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300_P1S_SD
-mit300_fw_file := $(wildcard $(srctree)/firmware/melfas/mit300/p1s_c/*)
-else
-mit300_fw_file := $(wildcard $(srctree)/firmware/melfas/mit300/p1s/*)
+ifdef CONFIG_MACH_MSM8916_C100N_KR
+melfas_img_file := $(wildcard $(srctree)/firmware/melfas/mit300/c100/*)
+melfas_firmware := $(subst $(srctree)/firmware/,,$(melfas_img_file))
+fw-shipped-$(CONFIG_MACH_MSM8916_C100N_KR) += $(melfas_firmware)
 endif
+
+ifdef CONFIG_TOUCHSCREEN_MELFAS_MIT300
+mit300_fw_file := $(wildcard $(srctree)/firmware/melfas/mit300/p1s/*)
 mit300_firmware := $(subst $(srctree)/firmware/,,$(mit300_fw_file))
 fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_MIT300) += $(mit300_firmware)
 endif
@@ -133,6 +139,14 @@ ifdef CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1
 mit300_fw_file := $(wildcard $(srctree)/firmware/melfas/mit300/ph1/*)
 mit300_firmware := $(subst $(srctree)/firmware/,,$(mit300_fw_file))
 fw-shipped-$(CONFIG_TOUCHSCREEN_UNIFIED_MELFAS_MIT300_PH1) += $(mit300_firmware)
+endif
+
+ifdef CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1
+synaptics_img_file := $(wildcard $(srctree)/firmware/synaptics/ph1/*.img)
+synaptics_img_file += $(wildcard $(srctree)/firmware/synaptics/ph1/*.bin)
+synaptics_img_file += $(wildcard $(srctree)/firmware/synaptics/ph1/*.txt)
+synaptics_firmware := $(subst $(srctree)/firmware/,,$(synaptics_img_file))
+fw-shipped-$(CONFIG_TOUCHSCREEN_UNIFIED_SYNAPTICS_TD4100_PH1) += $(synaptics_firmware)
 endif
 
 ifdef CONFIG_TOUCHSCREEN_LU202X

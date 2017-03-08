@@ -11,10 +11,12 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the¬
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  */
+
+#define TS_MODULE "[core]"
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -23,7 +25,12 @@
 #include <linux/delay.h>
 #include <linux/irq.h>
 #include <linux/input/lge_touch_notify.h>
-#include "touch_core.h"
+
+/*
+ *  Include to touch core Header File
+ */
+#include <touch_core.h>
+#include <touch_common.h>
 
 u32 touch_debug_mask = BASE_INFO;
 /* Debug mask value
@@ -31,45 +38,12 @@ u32 touch_debug_mask = BASE_INFO;
  */
 module_param_named(debug_mask, touch_debug_mask, int, S_IRUGO|S_IWUSR|S_IWGRP);
 
-#define TOUCH_UEVENT_KNOCK		0
-#define TOUCH_UEVENT_PASSWD		1
-#define TOUCH_UEVENT_SWIPE_RIGHT	2
-#define TOUCH_UEVENT_SWIPE_LEFT		3
-
-#define TOUCH_UEVENT_SIZE		4
-
 static void touch_send_uevent(struct touch_core_data *ts, int type);
+static void touch_suspend(struct device *dev);
+static void touch_resume(struct device *dev);
 
-void touch_msleep(unsigned int msecs)
-{
-	if (msecs >= 20)
-		msleep(msecs);
-	else
-		usleep_range(msecs * 1000, msecs * 1000);
-}
 
-static void touch_interrupt_control(struct device *dev, int on_off)
-{
-	struct touch_core_data *ts = to_touch_core(dev);
-
-	if (on_off) {
-		if (atomic_cmpxchg(&ts->state.irq_enable, 0, 1) == 0) {
-			touch_enable_irq(ts->irq);
-
-			if (ts->role.use_lpwg)
-				touch_enable_irq_wake(ts->irq);
-		}
-	} else {
-		if (atomic_cmpxchg(&ts->state.irq_enable, 1, 0) == 1) {
-			if (ts->role.use_lpwg)
-				touch_disable_irq_wake(ts->irq);
-
-			touch_disable_irq(ts->irq);
-		}
-	}
-}
-
-static void touch_report_palm_event(struct touch_core_data *ts)
+static void touch_report_cancel_event(struct touch_core_data *ts)
 {
 	u16 old_mask = ts->old_mask;
 	int i = 0;
@@ -98,6 +72,9 @@ static void touch_report_event(struct touch_core_data *ts)
 	u16 release_mask = 0;
 	u16 change_mask = 0;
 	int i;
+	bool hide_lockscreen_coord =
+		((atomic_read(&ts->state.lockscreen) == LOCKSCREEN_LOCK) &&
+		 (ts->role.hide_coordinate));
 
 	TOUCH_TRACE();
 
@@ -111,9 +88,9 @@ static void touch_report_event(struct touch_core_data *ts)
 			change_mask, press_mask, release_mask);
 
 	/* Palm state - Report Pressure value 255 */
-	if (ts->is_palm) {
-		touch_report_palm_event(ts);
-		ts->is_palm = 0;
+	if (ts->is_cancel) {
+		touch_report_cancel_event(ts);
+		ts->is_cancel = 0;
 	}
 
 	for (i = 0; i < MAX_FINGER; i++) {
@@ -135,21 +112,31 @@ static void touch_report_event(struct touch_core_data *ts)
 					ts->tdata[i].orientation);
 
 			if (press_mask & (1 << i)) {
-				TOUCH_I("%d finger pressed:<%d>(%4d,%4d,%4d)\n",
-						ts->tcount,
+				if (hide_lockscreen_coord) {
+					TOUCH_I("%d finger pressed:<%d>(xxxx,xxxx,xxxx)\n",
+							ts->tcount, i);
+				} else {
+					TOUCH_I("%d finger pressed:<%d>(%4d,%4d,%4d)\n",
+							ts->tcount,
+							i,
+							ts->tdata[i].x,
+							ts->tdata[i].y,
+							ts->tdata[i].pressure);
+				}
+			}
+		} else if (release_mask & (1 << i)) {
+			input_mt_slot(ts->input, i);
+			input_report_abs(ts->input, ABS_MT_TRACKING_ID, -1);
+			if (hide_lockscreen_coord) {
+				TOUCH_I(" finger released:<%d>(xxxx,xxxx,xxxx)\n",
+						i);
+			} else {
+				TOUCH_I(" finger released:<%d>(%4d,%4d,%4d)\n",
 						i,
 						ts->tdata[i].x,
 						ts->tdata[i].y,
 						ts->tdata[i].pressure);
 			}
-		} else if (release_mask & (1 << i)) {
-			input_mt_slot(ts->input, i);
-			input_report_abs(ts->input, ABS_MT_TRACKING_ID, -1);
-			TOUCH_I("finger released:<%d>(%4d,%4d,%4d)\n",
-					i,
-					ts->tdata[i].x,
-					ts->tdata[i].y,
-					ts->tdata[i].pressure);
 		}
 	}
 
@@ -159,13 +146,14 @@ static void touch_report_event(struct touch_core_data *ts)
 
 void touch_report_all_event(struct touch_core_data *ts)
 {
+	ts->is_cancel = 1;
 	if (ts->old_mask) {
 		ts->new_mask = 0;
 		touch_report_event(ts);
 		ts->tcount = 0;
 		memset(ts->tdata, 0, sizeof(struct touch_data) * MAX_FINGER);
 	}
-	ts->is_palm = 0;
+	ts->is_cancel = 0;
 }
 
 static void touch_core_initialize(struct touch_core_data *ts)
@@ -186,8 +174,7 @@ irqreturn_t touch_irq_handler(int irq, void *dev_id)
 		atomic_set(&ts->state.pm, DEV_PM_SUSPEND_IRQ);
 		wake_lock_timeout(&ts->lpwg_wake_lock, msecs_to_jiffies(1000));
 		return IRQ_HANDLED;
-	}
-
+    }
 	return IRQ_WAKE_THREAD;
 }
 
@@ -212,11 +199,29 @@ irqreturn_t touch_irq_thread(int irq, void *dev_id)
 		if (ts->intr_status & TOUCH_IRQ_PASSWD)
 			touch_send_uevent(ts, TOUCH_UEVENT_PASSWD);
 
+		if (ts->intr_status & TOUCH_IRQ_SWIPE_DOWN)
+			touch_send_uevent(ts, TOUCH_UEVENT_SWIPE_DOWN);
+
+		if (ts->intr_status & TOUCH_IRQ_SWIPE_UP)
+			TOUCH_I("Do not send Uevent for Swipe up gesture\n");
+
 		if (ts->intr_status & TOUCH_IRQ_SWIPE_RIGHT)
 			touch_send_uevent(ts, TOUCH_UEVENT_SWIPE_RIGHT);
 
 		if (ts->intr_status & TOUCH_IRQ_SWIPE_LEFT)
 			touch_send_uevent(ts, TOUCH_UEVENT_SWIPE_LEFT);
+	} else {
+		if (ret == -ERESTART) {
+			TOUCH_I("IRQ - IC reset delay = %d\n",
+				ts->caps.hw_reset_delay);
+			if (atomic_read(&ts->state.pm) == DEV_PM_RESUME)
+				wake_lock_timeout(&ts->lpwg_wake_lock, msecs_to_jiffies(1000));
+			touch_interrupt_control(ts->dev, INTERRUPT_DISABLE);
+			ts->driver->power(ts->dev, POWER_OFF);
+			ts->driver->power(ts->dev, POWER_ON);
+			mod_delayed_work(ts->wq, &ts->init_work,
+				msecs_to_jiffies(ts->caps.hw_reset_delay));
+		}
 	}
 
 	mutex_unlock(&ts->lock);
@@ -259,34 +264,50 @@ static void touch_upgrade_work_func(struct work_struct *upgrade_work)
 
 	atomic_set(&ts->state.core, CORE_UPGRADE);
 	mutex_lock(&ts->lock);
+	touch_interrupt_control(ts->dev, INTERRUPT_DISABLE);
 	ret = ts->driver->upgrade(ts->dev);
-	mutex_unlock(&ts->lock);
 
 	/* init force_upgrade */
 	ts->force_fwup = 0;
 	ts->test_fwpath[0] = '\0';
 
 	if (ret < 0) {
-		TOUCH_E("failed to upgrade (ret: %d)\n", ret);
+		TOUCH_I("There is no need to reset (ret: %d)\n", ret);
+		mutex_unlock(&ts->lock);
+		mod_delayed_work(ts->wq, &ts->init_work, 0);
 		return;
 	}
 
 	ts->driver->power(ts->dev, POWER_OFF);
 	ts->driver->power(ts->dev, POWER_ON);
-	queue_delayed_work(ts->wq, &ts->init_work,
+	mutex_unlock(&ts->lock);
+
+	mod_delayed_work(ts->wq, &ts->init_work,
 			msecs_to_jiffies(ts->caps.hw_reset_delay));
+}
+
+static void touch_fb_work_func(struct work_struct *fb_work)
+{
+	struct touch_core_data *ts =
+			container_of(to_delayed_work(fb_work),
+				struct touch_core_data, fb_work);
+
+	if(atomic_read(&ts->state.fb) == FB_SUSPEND)
+		touch_suspend(ts->dev);
+	else if(atomic_read(&ts->state.fb) == FB_RESUME)
+		touch_resume(ts->dev);
 }
 
 static int touch_check_driver_function(struct touch_core_data *ts)
 {
 	if (ts->driver->probe &&
 			ts->driver->remove &&
-			ts->driver->resume &&
 			ts->driver->suspend &&
+			ts->driver->resume &&
 			ts->driver->init &&
 			ts->driver->irq_handler &&
-			ts->driver->upgrade &&
-			ts->driver->power)
+			ts->driver->power &&
+			ts->driver->upgrade)
 		return 0;
 
 	return -EPERM;
@@ -392,7 +413,7 @@ static void touch_suspend(struct device *dev)
 	int ret = 0;
 	TOUCH_TRACE();
 
-	TOUCH_I("FB_SUSPEND Start\n");
+	TOUCH_I("%s Start\n", __func__);
 	cancel_delayed_work_sync(&ts->init_work);
 	cancel_delayed_work_sync(&ts->upgrade_work);
 	atomic_set(&ts->state.uevent, UEVENT_IDLE);
@@ -402,7 +423,10 @@ static void touch_suspend(struct device *dev)
 	/* if need skip, return value is not 0 in pre_suspend */
 	ret = ts->driver->suspend(dev);
 	mutex_unlock(&ts->lock);
-	TOUCH_I("FB_SUSPEND End\n");
+	TOUCH_I("%s End\n", __func__);
+
+	if (ret == 1)
+		mod_delayed_work(ts->wq, &ts->init_work, 0);
 }
 
 static void touch_resume(struct device *dev)
@@ -411,13 +435,14 @@ static void touch_resume(struct device *dev)
 	int ret = 0;
 	TOUCH_TRACE();
 
-	TOUCH_I("FB_RESUME Start\n");
+	TOUCH_I("%s Start\n", __func__);
 	mutex_lock(&ts->lock);
 	atomic_set(&ts->state.fb, FB_RESUME);
+	atomic_set(&ts->state.pm, DEV_PM_AWAKE);
 	/* if need skip, return value is not 0 in pre_resume */
 	ret = ts->driver->resume(dev);
 	mutex_unlock(&ts->lock);
-	TOUCH_I("FB_RESUME End\n");
+	TOUCH_I("%s End\n", __func__);
 
 	if (ret == 0)
 		mod_delayed_work(ts->wq, &ts->init_work, 0);
@@ -507,6 +532,8 @@ static int touch_init_uevent(struct touch_core_data *ts)
 char *uevent_str[TOUCH_UEVENT_SIZE][2] = {
 	{"TOUCH_GESTURE_WAKEUP=WAKEUP", NULL},
 	{"TOUCH_GESTURE_WAKEUP=PASSWORD", NULL},
+	{"TOUCH_GESTURE_WAKEUP=SWIPE_DOWN", NULL},
+	{"TOUCH_GESTURE_WAKEUP=SWIPE_UP", NULL},
 	{"TOUCH_GESTURE_WAKEUP=SWIPE_RIGHT", NULL},
 	{"TOUCH_GESTURE_WAKEUP=SWIPE_LEFT", NULL}
 };
@@ -542,6 +569,9 @@ static int touch_notify(struct touch_core_data *ts,
 {
 	int ret = 0;
 
+	if (touch_boot_mode() == TOUCH_CHARGER_MODE)
+		return 0;
+
 	if (ts->driver->notify) {
 		mutex_lock(&ts->lock);
 		switch (event) {
@@ -554,14 +584,22 @@ static int touch_notify(struct touch_core_data *ts,
 			break;
 
 		case NOTIFY_CONNECTION:
-			atomic_set(&ts->state.connect, *(int *)data);
-			ret = ts->driver->notify(ts->dev, event, data);
+			if (atomic_read(&ts->state.connect) != *(int *)data) {
+				atomic_set(&ts->state.connect, *(int *)data);
+				ret = ts->driver->notify(ts->dev, event, data);
+			}
 			break;
 
 		case NOTIFY_WIRELEES:
 			atomic_set(&ts->state.wireless, *(int *)data);
 			ret = ts->driver->notify(ts->dev, event, data);
 			break;
+
+		case NOTIFY_FB:
+			atomic_set(&ts->state.fb, *(int *)data);
+			queue_delayed_work(ts->wq, &ts->fb_work, 0);
+			break;
+
 
 		default:
 			ret = ts->driver->notify(ts->dev, event, data);
@@ -636,6 +674,8 @@ static int touch_init_works(struct touch_core_data *ts)
 	INIT_DELAYED_WORK(&ts->init_work, touch_init_work_func);
 	INIT_DELAYED_WORK(&ts->upgrade_work, touch_upgrade_work_func);
 	INIT_DELAYED_WORK(&ts->notify_work, touch_atomic_notifer_work_func);
+	INIT_DELAYED_WORK(&ts->fb_work, touch_fb_work_func);
+
 	return 0;
 }
 
@@ -726,7 +766,15 @@ static int touch_core_probe_charger(struct platform_device *pdev)
 	ts->driver->probe(ts->dev);
 
 	touch_init_locks(ts);
+	ret = touch_init_works(ts);
+	if (ret) {
+		TOUCH_E("failed to initialize works\n");
+		return ret;
+	}
+
 	touch_init_pm(ts);
+	touch_init_notify(ts);
+	touch_blocking_notifier_call(LCD_EVENT_TOUCH_DRIVER_REGISTERED, NULL);
 
 	return ret;
 }
@@ -766,7 +814,7 @@ static void touch_core_async_init(void *data, async_cookie_t cookie)
 	TOUCH_TRACE();
 
 	if (ret)
-		TOUCH_E("async_init failed");
+		TOUCH_E("async_init failed\n");
 }
 
 static int __init touch_core_init(void)
@@ -781,7 +829,6 @@ static void __exit touch_core_exit(void)
 	TOUCH_TRACE();
 	platform_driver_unregister(&touch_core_driver);
 }
-
 
 module_init(touch_core_init);
 module_exit(touch_core_exit);

@@ -148,21 +148,22 @@ static int i2c_read(u8 *reg, int regLen, u8 *buf, int dataLen)
 	int ret = 0;
     int retry = 0;
 
-	struct i2c_msg msgs[2] = {
-		{ .addr = pClient->addr, .flags = 0, .len = regLen, .buf = reg, },
-		{ .addr = pClient->addr, .flags = I2C_M_RD, .len = dataLen, .buf = buf, },
-	};
+    struct i2c_msg msgs[2] = {
+        { .addr = pClient->addr, .flags = 0, .len = regLen, .buf = reg, },
+        { .addr = pClient->addr, .flags = I2C_M_RD, .len = dataLen, .buf = buf, },
+    };
 
-    do{
-	   ret = i2c_transfer(pClient->adapter, msgs, 2);
-	   if (ret < 0)
-	   {
-          TOUCH_ERR("i2c retry [%d]\n", retry+1);
-          msleep(20);
-	   }else{
-          return TOUCH_SUCCESS;
-	   }
-    }while(++retry < 3);
+    do {
+        ret = i2c_transfer(pClient->adapter, &msgs[0], 1);
+	ret += i2c_transfer(pClient->adapter, &msgs[1], 1);
+
+        if (ret < 0) {
+            TOUCH_ERR("i2c retry [%d]\n", retry+1);
+            msleep(20);
+        } else {
+            return TOUCH_SUCCESS;
+        }
+    } while(++retry < 3);
 
 	return TOUCH_FAIL;
 #elif defined ( TOUCH_PLATFORM_MTK )
